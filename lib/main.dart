@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 
@@ -11,7 +12,7 @@ class BingoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Responsive Bingo',
+      title: 'Automated Live Bingo',
       theme: ThemeData(
         primarySwatch: Colors.purple,
         useMaterial3: true,
@@ -36,6 +37,11 @@ class _BingoScreenState extends State<BingoScreen> {
   List<int> calledNumbers = [];
   int? lastCalledNumber;
   final Random _random = Random();
+  
+  // Timer for the 3-second automatic caller
+  Timer? _callerTimer;
+  bool _isGameRunning = false;
+  String _serverStatus = "Waiting to Start...";
 
   @override
   void initState() {
@@ -43,11 +49,20 @@ class _BingoScreenState extends State<BingoScreen> {
     _generateNewCard();
   }
 
+  @override
+  void dispose() {
+    _callerTimer?.cancel();
+    super.dispose();
+  }
+
   void _generateNewCard() {
+    _callerTimer?.cancel();
     cardNumbers = List.generate(5, (_) => List.filled(5, 0));
     markedCells = List.generate(5, (_) => List.filled(5, false));
     calledNumbers.clear();
     lastCalledNumber = null;
+    _isGameRunning = false;
+    _serverStatus = "Ready. Press Start Game!";
 
     for (int col = 0; col < 5; col++) {
       List<int> pool = List.generate(15, (i) => (col * 15) + i + 1);
@@ -56,11 +71,28 @@ class _BingoScreenState extends State<BingoScreen> {
         cardNumbers[row][col] = pool[row];
       }
     }
-    markedCells[2][2] = true; // Center space is FREE
+    markedCells[2][2] = true; // FREE Space marked immediately
+  }
+
+  void _startGame() {
+    setState(() {
+      _isGameRunning = true;
+      _serverStatus = "Server Online: Calling numbers...";
+    });
+    // Triggers the background caller loop every 3 seconds
+    _callerTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      _callNextNumber();
+    });
   }
 
   void _callNextNumber() {
-    if (calledNumbers.length >= 75) return;
+    if (calledNumbers.length >= 75) {
+      _callerTimer?.cancel();
+      setState(() {
+        _serverStatus = "Game Over: All numbers called.";
+      });
+      return;
+    }
 
     int nextNum;
     do {
@@ -73,31 +105,54 @@ class _BingoScreenState extends State<BingoScreen> {
     });
   }
 
-  bool _checkWinCondition() {
-    for (int i = 0; i < 5; i++) {
-      if (markedCells[i].every((cell) => cell)) return true;
-    }
-    for (int col = 0; col < 5; col++) {
-      if (List.generate(5, (row) => markedCells[row][col]).every((cell) => cell)) return true;
-    }
-    if (List.generate(5, (i) => markedCells[i][i]).every((cell) => cell)) return true;
-    if (List.generate(5, (i) => markedCells[i][4 - i]).every((cell) => cell)) return true;
+  // Caller Verifier Logic: Makes sure card lines match active server draws
+  void _verifyBingoClaim() {
+    bool hasWinningLine = false;
 
-    return false;
+    // 1. Check Rows
+    for (int i = 0; i < 5; i++) {
+      if (markedCells[i].every((cell) => cell)) hasWinningLine = true;
+    }
+    // 2. Check Columns
+    for (int col = 0; col < 5; col++) {
+      if (List.generate(5, (row) => markedCells[row][col]).every((cell) => cell)) hasWinningLine = true;
+    }
+    // 3. Check Diagonals
+    if (List.generate(5, (i) => markedCells[i][i]).every((cell) => cell)) hasWinningLine = true;
+    if (List.generate(5, (i) => markedCells[i][4 - i]).every((cell) => cell)) hasWinningLine = true;
+
+    // 4. Double-check integrity: Did the user mark numbers that haven't been called yet?
+    bool fraudDetected = false;
+    for (int row = 0; row < 5; row++) {
+      for (int col = 0; col < 5; col++) {
+        if (row == 2 && col == 2) continue; // Skip FREE space
+        if (markedCells[row][col] && !calledNumbers.contains(cardNumbers[row][col])) {
+          fraudDetected = true;
+        }
+      }
+    }
+
+    if (hasWinningLine && !fraudDetected) {
+      _callerTimer?.cancel();
+      _showResultDialog(title: "🎉 BINGO WINNER! 🎉", message: "The server successfully verified your card configurations. You won!");
+    } else if (fraudDetected) {
+      _showResultDialog(title: "❌ Verification Failed ❌", message: "Invalid claim! You marked spaces that the host server hasn't called yet.");
+    } else {
+      _showResultDialog(title: "⚠️ Incomplete Card ⚠️", message: "The server scanned your card layout, but you don't have a complete row, column, or diagonal line yet.");
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('🎉 Live Online Bingo 🎉', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        title: const Text('🕹️ Server-Driven Bingo Room', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         backgroundColor: Colors.deepPurple,
         centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: () => setState(_generateNewCard),
-            tooltip: 'New Game Card',
           )
         ],
       ),
@@ -122,7 +177,7 @@ class _BingoScreenState extends State<BingoScreen> {
                     _buildAnnouncerPanel(),
                     const Divider(),
                     Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                       child: _buildBingoCard(constraints.maxWidth),
                     ),
                   ],
@@ -143,56 +198,68 @@ class _BingoScreenState extends State<BingoScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.all(20.0),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
+          Text(
+            _serverStatus,
+            style: TextStyle(fontWeight: FontWeight.bold, color: _isGameRunning ? Colors.green.shade700 : Colors.red.shade700, fontSize: 16),
+            textAlign: Center,
+          ),
+          const SizedBox(height: 12),
           Card(
             elevation: 6,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             child: Container(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(20),
               width: double.infinity,
               decoration: BoxDecoration(
                 gradient: LinearGradient(colors: [Colors.deepPurple.shade400, Colors.purple.shade700]),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
                 children: [
-                  const Text('LAST CALLED NUMBER', style: TextStyle(color: Colors.white70, fontSize: 14, letterSpacing: 1.5)),
-                  const SizedBox(height: 10),
+                  const Text('LIVE SERVER CALL', style: TextStyle(color: Colors.white70, fontSize: 13, letterSpacing: 1.5)),
+                  const SizedBox(height: 5),
                   Text(
                     lastCalledNumber != null ? '$letter-$lastCalledNumber' : '--',
-                    style: const TextStyle(fontSize: 54, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: const TextStyle(fontSize: 50, fontWeight: FontWeight.bold, color: Colors.white),
                   ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange.shade700,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-              textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          const SizedBox(height: 15),
+          if (!_isGameRunning)
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade600, foregroundColor: Colors.white, minWidth: 200),
+              onPressed: _startGame,
+              child: const Text('START ROOM CALLER'),
+            )
+          else
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, minWidth: 200),
+              onPressed: _verifyBingoClaim,
+              child: const Text('🔔 BINGO! CLAIM WIN 🔔', style: TextStyle(fontWeight: FontWeight.black)),
             ),
-            onPressed: _callNextNumber,
-            icon: const Icon(Icons.volume_up),
-            label: const Text('CALL NEXT NUMBER'),
-          ),
-          const SizedBox(height: 20),
-          const Text('Called Numbers History:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: calledNumbers.map((num) {
-              return Chip(
-                backgroundColor: Colors.purple.shade100,
-                label: Text('$num', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              );
-            }).toList(),
+          const SizedBox(height: 15),
+          const Text('Server Log History:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+          const SizedBox(height: 6),
+          SizedBox(
+            maxHeight: 120,
+            child: SingleChildScrollView(
+              child: Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: calledNumbers.reversed.map((num) {
+                  return Chip(
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: Colors.purple.shade50,
+                    label: Text('$num', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  );
+                }).toList(),
+              ),
+            ),
           )
         ],
       ),
@@ -200,15 +267,15 @@ class _BingoScreenState extends State<BingoScreen> {
   }
 
   Widget _buildBingoCard(double availableSize) {
-    double cardWidth = min(availableSize * 0.9, 450);
+    double cardWidth = min(availableSize * 0.9, 420);
 
     return Container(
       width: cardWidth,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, spreadRadius: 2)],
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -217,22 +284,19 @@ class _BingoScreenState extends State<BingoScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: columns.map((letter) => Expanded(
               child: Center(
-                child: Text(
-                  letter,
-                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.deepPurple),
-                ),
+                child: Text(letter, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.black, color: Colors.deepPurple)),
               ),
             )).toList(),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: 25,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 5,
-              crossAxisSpacing: 6,
-              mainAxisSpacing: 6,
+              crossAxisSpacing: 5,
+              mainAxisSpacing: 5,
             ),
             itemBuilder: (context, index) {
               int row = index ~/ 5;
@@ -243,31 +307,25 @@ class _BingoScreenState extends State<BingoScreen> {
 
               return InkWell(
                 onTap: () {
-                  if (isFreeSpace) return;
+                  if (isFreeSpace || !_isGameRunning) return;
                   setState(() {
                     markedCells[row][col] = !markedCells[row][col];
-                    if (_checkWinCondition()) {
-                      _showWinDialog();
-                    }
                   });
                 },
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
+                  duration: const Duration(milliseconds: 150),
                   decoration: BoxDecoration(
                     color: isFreeSpace 
                         ? Colors.amber.shade200 
                         : (isMarked ? Colors.green.shade400 : Colors.grey.shade100),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isMarked ? Colors.green.shade700 : Colors.grey.shade300, 
-                      width: 2
-                    ),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: isMarked ? Colors.green.shade700 : Colors.grey.shade300, width: 1.5),
                   ),
                   child: Center(
                     child: Text(
                       isFreeSpace ? 'FREE' : '$val',
                       style: TextStyle(
-                        fontSize: isFreeSpace ? 12 : 18,
+                        fontSize: isFreeSpace ? 11 : 16,
                         fontWeight: FontWeight.bold,
                         color: isMarked || isFreeSpace ? Colors.white : Colors.black87,
                       ),
@@ -282,25 +340,23 @@ class _BingoScreenState extends State<BingoScreen> {
     );
   }
 
-  void _showWinDialog() {
+  void _showResultDialog({required String title, required String message}) {
     showDialog(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('🎉 BINGO! 🎉', textAlign: TextAlign.center, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
-        content: const Text('Congratulations! You filled a winning line!', textAlign: TextAlign.center),
+        title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+        content: Text(message, textAlign: TextAlign.center),
         actionsAlignment: MainAxisAlignment.center,
         actions: [
           TextButton(
             style: TextButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
             onPressed: () {
               Navigator.of(context).pop();
-              setState(_generateNewCard);
+              if (title.contains("WINNER")) {
+                setState(_generateNewCard);
+              }
             },
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text('Play Again'),
-            ),
+            child: const Text('OK'),
           ),
         ],
       ),
