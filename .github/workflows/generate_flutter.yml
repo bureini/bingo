@@ -25,7 +25,6 @@ jobs:
 
       - name: Generate Flutter App Structure
         run: |
-          # If a full flutter project hasn't been initialized yet, build it
           if [ ! -f "pubspec.yaml" ]; then
             flutter create tmp_app --project-name=bingo --platforms=web
             mv main.dart tmp_app/lib/main.dart 2>/dev/null || true
@@ -44,7 +43,7 @@ jobs:
         run: flutter pub get
 
       - name: Build Web Target
-        run: flutter build web --base-href "/${{ github.event.repository.name }}/" --release
+        run: flutter build web --base-href "/${{ github.event.repository.name }}/" --release --no-source-maps
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
