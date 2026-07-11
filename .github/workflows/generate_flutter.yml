@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'main.dart'
 
 permissions:
   contents: write
@@ -33,17 +31,17 @@ jobs:
 
       - name: Generate Flutter App
         run: |
-          flutter create tmp_app --project-name=my_automated_app
-          mv main.dart tmp_app/lib/main.dart
-          mv tmp_app/* .
-          mv tmp_app/.[!.]* . 2>/dev/null || true
-          rm -rf tmp_app
-          
-          # Commit the generated structure back to main branch
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          if ! git diff-index --quiet HEAD; then
+          # Only create app files if they don't exist yet
+          if [ ! -f "pubspec.yaml" ]; then
+            flutter create tmp_app --project-name=my_automated_app
+            mv main.dart tmp_app/lib/main.dart 2>/dev/null || true
+            mv tmp_app/* .
+            mv tmp_app/.[!.]* . 2>/dev/null || true
+            rm -rf tmp_app
+            
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add .
             git commit -m "Automated: Generated Flutter project structure"
             git push origin main
           fi
@@ -51,7 +49,7 @@ jobs:
       - name: Build Web App
         run: |
           flutter config --enable-web
-          flutter build web --base-href "/bingo/"
+          flutter build web --base-href "/${{ github.event.repository.name }}/"
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
