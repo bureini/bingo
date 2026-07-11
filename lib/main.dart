@@ -219,7 +219,7 @@ class _BingoScreenState extends State<BingoScreen> {
               child: Center(
                 child: Text(
                   letter,
-                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.black, color: Colors.deepPurple),
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.deepPurple),
                 ),
               ),
             )).toList(),
