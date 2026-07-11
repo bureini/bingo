@@ -38,7 +38,6 @@ class _BingoScreenState extends State<BingoScreen> {
   int? lastCalledNumber;
   final Random _random = Random();
   
-  // Timer for the 3-second automatic caller
   Timer? _callerTimer;
   bool _isGameRunning = false;
   String _serverStatus = "Waiting to Start...";
@@ -71,7 +70,7 @@ class _BingoScreenState extends State<BingoScreen> {
         cardNumbers[row][col] = pool[row];
       }
     }
-    markedCells[2][2] = true; // FREE Space marked immediately
+    markedCells[2][2] = true; // FREE Space
   }
 
   void _startGame() {
@@ -79,7 +78,6 @@ class _BingoScreenState extends State<BingoScreen> {
       _isGameRunning = true;
       _serverStatus = "Server Online: Calling numbers...";
     });
-    // Triggers the background caller loop every 3 seconds
     _callerTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       _callNextNumber();
     });
@@ -105,27 +103,26 @@ class _BingoScreenState extends State<BingoScreen> {
     });
   }
 
-  // Caller Verifier Logic: Makes sure card lines match active server draws
   void _verifyBingoClaim() {
     bool hasWinningLine = false;
 
-    // 1. Check Rows
+    // Check Rows
     for (int i = 0; i < 5; i++) {
       if (markedCells[i].every((cell) => cell)) hasWinningLine = true;
     }
-    // 2. Check Columns
+    // Check Columns
     for (int col = 0; col < 5; col++) {
       if (List.generate(5, (row) => markedCells[row][col]).every((cell) => cell)) hasWinningLine = true;
     }
-    // 3. Check Diagonals
+    // Check Diagonals
     if (List.generate(5, (i) => markedCells[i][i]).every((cell) => cell)) hasWinningLine = true;
     if (List.generate(5, (i) => markedCells[i][4 - i]).every((cell) => cell)) hasWinningLine = true;
 
-    // 4. Double-check integrity: Did the user mark numbers that haven't been called yet?
+    // Fraud Scrutineer
     bool fraudDetected = false;
     for (int row = 0; row < 5; row++) {
       for (int col = 0; col < 5; col++) {
-        if (row == 2 && col == 2) continue; // Skip FREE space
+        if (row == 2 && col == 2) continue;
         if (markedCells[row][col] && !calledNumbers.contains(cardNumbers[row][col])) {
           fraudDetected = true;
         }
@@ -204,8 +201,12 @@ class _BingoScreenState extends State<BingoScreen> {
         children: [
           Text(
             _serverStatus,
-            style: TextStyle(fontWeight: FontWeight.bold, color: _isGameRunning ? Colors.green.shade700 : Colors.red.shade700, fontSize: 16),
-            textAlign: Center,
+            style: TextStyle(
+              fontWeight: FontWeight.bold, 
+              color: _isGameRunning ? Colors.green.shade700 : Colors.red.shade700, 
+              fontSize: 16
+            ),
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
           Card(
@@ -232,15 +233,15 @@ class _BingoScreenState extends State<BingoScreen> {
           const SizedBox(height: 15),
           if (!_isGameRunning)
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade600, foregroundColor: Colors.white, minWidth: 200),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade600, foregroundColor: Colors.white),
               onPressed: _startGame,
               child: const Text('START ROOM CALLER'),
             )
           else
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, minWidth: 200),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white),
               onPressed: _verifyBingoClaim,
-              child: const Text('🔔 BINGO! CLAIM WIN 🔔', style: TextStyle(fontWeight: FontWeight.black)),
+              child: const Text('🔔 BINGO! CLAIM WIN 🔔', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           const SizedBox(height: 15),
           const Text('Server Log History:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
@@ -284,7 +285,7 @@ class _BingoScreenState extends State<BingoScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: columns.map((letter) => Expanded(
               child: Center(
-                child: Text(letter, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.black, color: Colors.deepPurple)),
+                child: Text(letter, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
               ),
             )).toList(),
           ),
@@ -343,6 +344,7 @@ class _BingoScreenState extends State<BingoScreen> {
   void _showResultDialog({required String title, required String message}) {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
         content: Text(message, textAlign: TextAlign.center),
