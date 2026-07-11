@@ -1,0 +1,60 @@
+name: Auto-Generate and Deploy Flutter Project
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'main.dart'
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Generate Flutter App
+        run: |
+          flutter create tmp_app --project-name=my_automated_app
+          mv main.dart tmp_app/lib/main.dart
+          mv tmp_app/* .
+          mv tmp_app/.[!.]* . 2>/dev/null || true
+          rm -rf tmp_app
+          
+          # Commit the generated structure back to main branch
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          if ! git diff-index --quiet HEAD; then
+            git commit -m "Automated: Generated Flutter project structure"
+            git push origin main
+          fi
+
+      - name: Build Web App
+        run: |
+          flutter config --enable-web
+          flutter build web --base-href "/bingo/"
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/web
