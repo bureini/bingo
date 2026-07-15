@@ -112,7 +112,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                             margin: const EdgeInsets.symmetric(horizontal: 4),
                             padding: const EdgeInsets.all(8),
                             decoration: const BoxDecoration(
-                              color: Color(0xFFE8EAF6), // Stable Indigo 100 hex
+                              color: Color(0xFFE8EAF6),
                               shape: BoxShape.circle,
                             ),
                             child: Text('$num', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
@@ -127,7 +127,8 @@ class _BingoGamePageState extends State<BingoGamePage> {
             Expanded(
               child: Center(
                 child: Container(
-                  maxWidth: 450,
+                  // FIXED: Changed parameter to constraints with BoxConstraints
+                  constraints: const BoxConstraints(maxWidth: 450),
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -138,7 +139,8 @@ class _BingoGamePageState extends State<BingoGamePage> {
                           child: Center(
                             child: Text(
                               letter,
-                              style: TextStyle(fontSize: 28, fontWeight: FontWeight.black, color: Colors.indigo),
+                              // FIXED: Changed FontWeight.black to FontWeight.w900
+                              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.indigo),
                             ),
                           ),
                         )).toList(),
@@ -171,7 +173,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: const Color(0xFFC5CAE9), width: 1.5), // Stable Indigo 200 hex
+                                  border: Border.all(color: const Color(0xFFC5CAE9), width: 1.5),
                                   boxShadow: const [
                                     BoxShadow(color: Colors.black12, offset: Offset(0, 2), blurRadius: 4)
                                   ],
@@ -191,7 +193,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                       Container(
                                         decoration: BoxDecoration(
                                           shape: BoxShape.circle,
-                                          color: Colors.red.withOpacity(0.45), // Swapped to withOpacity
+                                          color: Colors.red.withOpacity(0.45),
                                         ),
                                         margin: const EdgeInsets.all(6),
                                       ),
