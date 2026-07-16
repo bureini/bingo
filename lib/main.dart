@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -7,169 +8,285 @@ void main() {
 }
 
 class BingoApp extends StatelessWidget {
-  const BingoApp({Key? key}) : super(key: key);
+  const BingoApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Real-Time Bingo',
-      theme: ThemeData(primarySwatch: Colors.deepPurple),
-      home: const BingoGameScreen(),
+      title: 'Multiplayer Bingo',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        useMaterial3: true,
+      ),
+      home: const BingoGamePage(),
     );
   }
 }
 
-class BingoGameScreen extends StatefulWidget {
-  const BingoGameScreen({Key? key}) : super(key: key);
+class BingoGamePage extends StatefulWidget {
+  const BingoGamePage({super.key});
 
   @override
-  State<BingoGameScreen> createState() => _BingoGameScreenState();
+  State<BingoGamePage> createState() => _BingoGamePageState();
 }
 
-class _BingoGameScreenState extends State<BingoGameScreen> {
-  // Replace with your actual production backend URL deployed on the bingo-backend branch
-  final String _serverUrl = 'wss://your-bingo-backend-url.com/ws';
-  late WebSocketChannel _channel;
+class _BingoGamePageState extends State<BingoGamePage> {
+  final List<List<bool>> _daubedStates = List.generate(5, (_) => List.filled(5, false));
+  late List<List<String>> _bingoCardNumbers;
   
-  List<int> _drawnNumbers = [];
-  List<List<int>> _bingoCard = [];
-  Set<int> _daubedNumbers = {};
-  String _gameStatus = "Connecting to game server...";
+  // Real-time communication channels
+  WebSocketChannel? _channel;
+  final List<int> _drawnNumbers = []; 
+  int? _currentDrawnNumber;
+  bool _isConnected = false;
+
+  // Replace with your production WebSocket backend URL (e.g., deployed on Render/Railway)
+  final String _wsUrl = 'wss://your-bingo-backend.onrender.com/ws';
 
   @override
   void initState() {
     super.initState();
-    _connectToGameServer();
+    _generateStandardBingoCard();
+    _connectToWebSocket();
   }
 
-  void _connectToGameServer() {
+  void _connectToWebSocket() {
     try {
-      _channel = WebSocketChannel.connect(Uri.parse(_serverUrl));
-      _channel.stream.listen(
-        (message) => _handleServerMessage(message),
-        onError: (error) {
-          setState(() => _gameStatus = "Connection error. Retrying...");
-          Future.delayed(const Duration(seconds: 5), _connectToGameServer);
+      _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
+      setState(() => _isConnected = true);
+
+      _channel!.stream.listen(
+        (message) {
+          final data = jsonDecode(message);
+          if (data['type'] == 'number_drawn') {
+            setState(() {
+              int newNumber = data['number'];
+              _currentDrawnNumber = newNumber;
+              _drawnNumbers.add(newNumber);
+            });
+          } else if (data['type'] == 'bingo_validation_result') {
+            bool isWin = data['is_valid'];
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(isWin ? '🎉 BINGO VERIFIED! YOU WIN! 🎉' : '❌ False Bingo! Keep playing.'),
+                backgroundColor: isWin ? Colors.green : Colors.red,
+              ),
+            );
+          }
         },
-        onDone: () {
-          setState(() => _gameStatus = "Disconnected from server.");
-        },
+        onError: (error) => setState(() => _isConnected = false),
+        onDone: () => setState(() => _isConnected = false),
       );
     } catch (e) {
-      setState(() => _gameStatus = "Failed to connect to server.");
+      setState(() => _isConnected = false);
     }
   }
 
-  void _handleServerMessage(dynamic rawMessage) {
-    final Map<String, dynamic> data = jsonDecode(rawMessage as String);
-    final String action = data['action'] ?? '';
-
-    setState(() {
-      switch (action) {
-        case 'INIT_CARD':
-          // The server sends down a safe, randomized card matrix configuration
-          _bingoCard = List<List<int>>.from(
-            (data['card'] as List).map((row) => List<int>.from(row)),
-          );
-          _gameStatus = "Game joined! Waiting for the next ball...";
-          break;
-
-        case 'BALL_DRAWN':
-          int ball = data['number'];
-          _drawnNumbers.add(ball);
-          _gameStatus = "Ball drawn: Number $ball";
-          break;
-
-        case 'GAME_OVER':
-          String winner = data['winner'];
-          _gameStatus = "Game Over! Winner: $winner";
-          break;
+  void _generateStandardBingoCard() {
+    final random = Random();
+    List<List<int>> columns = [];
+    
+    for (int i = 0; i < 5; i++) {
+      int min = (i * 15) + 1;
+      Set<int> columnNumbers = {};
+      while (columnNumbers.length < 5) {
+        columnNumbers.add(min + random.nextInt(15));
       }
-    });
-  }
-
-  void _daubNumber(int number) {
-    // Client-side guard: Only allow marking a number if the server has drawn it or it's the FREE space (0)
-    if (_drawnNumbers.contains(number) || number == 0) {
-      setState(() {
-        if (_daubedNumbers.contains(number)) {
-          _daubedNumbers.remove(number);
-        } else {
-          _daubedNumbers.add(number);
-        }
-      });
+      columns.add(columnNumbers.toList());
     }
+
+    _bingoCardNumbers = List.generate(5, (row) {
+      return List.generate(5, (col) {
+        if (row == 2 && col == 2) {
+          _daubedStates[row][col] = true; 
+          return "FREE";
+        }
+        return columns[col][row].toString();
+      });
+    });
   }
 
   void _claimBingo() {
-    // Transmit the payload to the server. 
-    // The server will execute an absolute authority check to declare the official win.
-    final payload = jsonEncode({
-      'action': 'CLAIM_BINGO',
-      'daubed': _daubedNumbers.toList(),
-    });
-    _channel.sink.add(payload);
+    if (_channel == null || !_isConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Not connected to game server!')),
+      );
+      return;
+    }
+
+    // Secure Verification payload: Sending current layout and user selections to server
+    final payload = {
+      'action': 'claim_bingo',
+      'card': _bingoCardNumbers,
+      'daubed': _daubedStates,
+    };
+
+    _channel!.sink.add(jsonEncode(payload));
   }
 
   @override
   void dispose() {
-    _channel.sink.close();
+    _channel?.sink.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Live Multiplayer Bingo')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      appBar: AppBar(
+        title: Text(_isConnected ? 'Live Multiplayer Bingo 🟢' : 'Connecting to Server... 🔴'),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+        centerTitle: true,
+      ),
+      body: Container(
+        color: Colors.grey[100],
         child: Column(
           children: [
-            Text(_gameStatus, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 20),
-            Text('Drawn Balls: ${_drawnNumbers.join(', ')}', style: const TextStyle(fontSize: 14)),
-            const SizedBox(height: 20),
-            if (_bingoCard.isNotEmpty)
-              Expanded(
-                child: GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 5),
-                  itemCount: 25,
-                  itemBuilder: (context, index) {
-                    int row = index ~/ 5;
-                    int col = index % 5;
-                    int number = _bingoCard[row][col];
-                    bool isDaubed = _daubedNumbers.contains(number);
-
-                    return GestureDetector(
-                      onTap: () => _daubNumber(number),
-                      child: Container(
-                        margin: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: number == 0 
-                              ? Colors.amber.shade200 // FREE Space decoration
-                              : (isDaubed ? Colors.green.shade300 : Colors.grey.shade200),
-                          border: Border.all(color: Colors.black26),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(
+            Card(
+              margin: const EdgeInsets.all(16.0),
+              elevation: 4,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 16.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    Column(
+                      children: [
+                        const Text('CURRENT NUMBER', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                        const SizedBox(height: 8),
+                        CircleAvatar(
+                          radius: 36,
+                          backgroundColor: Colors.amber[700],
                           child: Text(
-                            number == 0 ? 'FREE' : '$number',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            _currentDrawnNumber != null ? '$_currentDrawnNumber' : '--',
+                            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
                           ),
                         ),
-                      ),
-                    );
-                  },
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('RECENT DRAWS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: _drawnNumbers.reversed.skip(1).take(4).map((num) => Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFE8EAF6),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text('$num', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+                          )).toList(),
+                        )
+                      ],
+                    )
+                  ],
                 ),
               ),
-            ElevatedButton(
-              onPressed: _claimBingo,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-              ),
-              child: const Text('BINGO!', style: TextStyle(fontSize: 20, color: Colors.white)),
             ),
+            Expanded(
+              child: Center(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 450),
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: const ['B', 'I', 'N', 'G', 'O'].map((letter) => Expanded(
+                          child: Center(
+                            child: Text(
+                              letter,
+                              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.indigo),
+                            ),
+                          ),
+                        )).toList(),
+                      ),
+                      const SizedBox(height: 8),
+                      AspectRatio(
+                        aspectRatio: 1,
+                        child: GridView.builder(
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 5,
+                            crossAxisSpacing: 6,
+                            mainAxisSpacing: 6,
+                          ),
+                          itemCount: 25,
+                          itemBuilder: (context, index) {
+                            int row = index ~/ 5;
+                            int col = index % 5;
+                            String val = _bingoCardNumbers[row][col];
+                            bool isDaubed = _daubedStates[row][col];
+
+                            return GestureDetector(
+                              onTap: () {
+                                if (row == 2 && col == 2) return;
+                                setState(() {
+                                  _daubedStates[row][col] = !isDaubed;
+                                });
+                              },
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFC5CAE9), width: 1.5),
+                                  boxShadow: const [
+                                    BoxShadow(color: Colors.black12, offset: Offset(0, 2), blurRadius: 4)
+                                  ],
+                                ),
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    Text(
+                                      val,
+                                      style: TextStyle(
+                                        fontSize: val == "FREE" ? 14 : 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: val == "FREE" ? Colors.amber[900] : Colors.black87,
+                                      ),
+                                    ),
+                                    if (isDaubed)
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: Colors.red.withOpacity(0.45),
+                                        ),
+                                        margin: const EdgeInsets.all(6),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: ElevatedButton(
+                  onPressed: _claimBingo,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green[600],
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 54),
+                    textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('BINGO!'),
+                ),
+              ),
+            )
           ],
         ),
       ),
