@@ -1,17 +1,17 @@
-# my_automated_app
+## 🚀 How to Host & Run This Project Locally
 
-A new Flutter project.
+Follow these steps to download the source code, install the required dependencies, and run the Bingo multiplayer web application on your local machine or private server.
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+### 📋 Prerequisites
 
-A few resources to get you started if this is your first Flutter project:
+Before you begin, ensure you have the following tools installed on your operating system:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+* **Flutter SDK:** Version `3.12.2` or higher. [Download Flutter SDK](https://docs.flutter.dev/get-started/install)
+* **Git:** To clone the repository. [Download Git](https://git-scm.com/downloads)
+* **Google Chrome / Edge:** Or any modern web browser for testing the Web target.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Verify your Flutter installation by running the following command in your terminal:
+```bash
+flutter doctor
