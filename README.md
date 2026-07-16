@@ -1,3 +1,9 @@
+# 🎮 Multiplayer Bingo
+
+[![Live Demo](https://img.shields.io/badge/Demo-Live%20on%20GitHub%20Pages-green?style=for-the-badge)](https://bureini.github.io/bingo/)
+
+▶️ **Play the live game here:** [https://bureini.github.io/bingo/](https://bureini.github.io/bingo/)
+
 ## 🚀 How to Host & Run This Project Locally
 
 Follow these steps to download the source code, install the required dependencies, and run the Bingo multiplayer web application on your local machine or private server.
