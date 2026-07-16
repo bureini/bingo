@@ -23,20 +23,37 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Flutter App Structure
+      - name: Structural Alignment Safety
         run: |
+          # If pubspec.yaml is missing, build a clean structural matrix
           if [ ! -f "pubspec.yaml" ]; then
+            echo "Initializing fresh web architecture structure..."
+            if [ -f "main.dart" ]; then
+              mv main.dart backup_main.dart
+            fi
+            
             flutter create tmp_app --project-name=bingo --platforms=web
-            mv main.dart tmp_app/lib/main.dart 2>/dev/null || true
-            mv tmp_app/* .
+            
+            if [ -f "backup_main.dart" ]; then
+              mv backup_main.dart tmp_app/lib/main.dart
+            fi
+            
+            mv tmp_app/* . 2>/dev/null || true
             mv tmp_app/.[!.]* . 2>/dev/null || true
             rm -rf tmp_app
             
             git config --global user.name "github-actions[bot]"
             git config --global user.email "github-actions[bot]@users.noreply.github.com"
             git add .
-            git commit -m "Automated: Setup initial clean Flutter web project structure"
-            git push origin main
+            git commit -m "Automated: Standardized project generation" || echo "No changes"
+            git push origin main || echo "No changes to push"
+          fi
+
+      - name: Clean Conflicting Entrypoints
+        run: |
+          # Ensure code lives strictly inside /lib to prevent dart2js compiler bugs
+          if [ -f "main.dart" ] && [ -f "lib/main.dart" ]; then
+            rm -f main.dart
           fi
 
       - name: Fetch Dependencies
