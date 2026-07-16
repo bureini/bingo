@@ -35,14 +35,14 @@ class _BingoGamePageState extends State<BingoGamePage> {
   final List<List<bool>> _daubedStates = List.generate(5, (_) => List.filled(5, false));
   late List<List<String>> _bingoCardNumbers;
   
-  // Real-time communication channels
   WebSocketChannel? _channel;
   final List<int> _drawnNumbers = []; 
   int? _currentDrawnNumber;
   bool _isConnected = false;
 
-  // Replace with your production WebSocket backend URL (e.g., deployed on Render/Railway)
-  final String _wsUrl = 'wss://your-bingo-backend.onrender.com/ws';
+  // UPDATED: Public testing WebSocket URL. 
+  // When you deploy your custom Python/Node.js backend later, replace this with your backend domain.
+  final String _wsUrl = 'wss://echo.websocket.events';
 
   @override
   void initState() {
@@ -58,21 +58,28 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
       _channel!.stream.listen(
         (message) {
-          final data = jsonDecode(message);
-          if (data['type'] == 'number_drawn') {
-            setState(() {
-              int newNumber = data['number'];
-              _currentDrawnNumber = newNumber;
-              _drawnNumbers.add(newNumber);
-            });
-          } else if (data['type'] == 'bingo_validation_result') {
-            bool isWin = data['is_valid'];
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(isWin ? '🎉 BINGO VERIFIED! YOU WIN! 🎉' : '❌ False Bingo! Keep playing.'),
-                backgroundColor: isWin ? Colors.green : Colors.red,
-              ),
-            );
+          // The testing echo server echoes back whatever we send it.
+          // This section processes the server stream safely.
+          try {
+            final data = jsonDecode(message);
+            if (data['type'] == 'number_drawn') {
+              setState(() {
+                int newNumber = data['number'];
+                _currentDrawnNumber = newNumber;
+                _drawnNumbers.add(newNumber);
+              });
+            } else if (data['action'] == 'claim_bingo') {
+              // Echo testing mock response simulation:
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('🎉 Testing Mode: Bingo Claim Sent & Received by Echo Server!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } catch (e) {
+            // Raw text fallback if the test server sends a welcome text broadcast string
+            debugPrint("Received broadcast text: $message");
           }
         },
         onError: (error) => setState(() => _isConnected = false),
@@ -115,7 +122,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
       return;
     }
 
-    // Secure Verification payload: Sending current layout and user selections to server
+    // Secure Verification payload structural blueprint
     final payload = {
       'action': 'claim_bingo',
       'card': _bingoCardNumbers,
