@@ -148,7 +148,7 @@ class _BingoGameScreenState extends State<BingoGameScreen> {
                           color: number == 0 
                               ? Colors.amber.shade200 // FREE Space decoration
                               : (isDaubed ? Colors.green.shade300 : Colors.grey.shade200),
-                          border: Border.all(color: Colors.black25),
+                          border: Border.all(color: Colors.black26),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Center(
