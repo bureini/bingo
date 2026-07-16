@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -33,21 +32,22 @@ class BingoGamePage extends StatefulWidget {
 
 class _BingoGamePageState extends State<BingoGamePage> {
   final List<List<bool>> _daubedStates = List.generate(5, (_) => List.filled(5, false));
-  late List<List<String>> _bingoCardNumbers;
+  List<List<dynamic>> _bingoCardNumbers = List.generate(5, (_) => List.filled(5, ""));
   
   WebSocketChannel? _channel;
   final List<int> _drawnNumbers = []; 
   int? _currentDrawnNumber;
   bool _isConnected = false;
+  bool _gameStarted = false;
+  String _gameStatusMessage = "Connecting to game server...";
 
-  // UPDATED: Public testing WebSocket URL. 
-  // When you deploy your custom Python/Node.js backend later, replace this with your backend domain.
-  final String _wsUrl = 'wss://echo.websocket.events';
+  // NOTE: For local network testing, you can use 'ws://localhost:8080/ws/room101/User'
+  // When deploying live, swap this out for your hosted WebSocket domain URL.
+  final String _wsUrl = 'ws://localhost:8080/ws/room101/Player_${100 + (DateTime.now().millisecondsSinceEpoch % 900)}';
 
   @override
   void initState() {
     super.initState();
-    _generateStandardBingoCard();
     _connectToWebSocket();
   }
 
@@ -58,28 +58,62 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
       _channel!.stream.listen(
         (message) {
-          // The testing echo server echoes back whatever we send it.
-          // This section processes the server stream safely.
           try {
             final data = jsonDecode(message);
-            if (data['type'] == 'number_drawn') {
-              setState(() {
-                int newNumber = data['number'];
-                _currentDrawnNumber = newNumber;
-                _drawnNumbers.add(newNumber);
-              });
-            } else if (data['action'] == 'claim_bingo') {
-              // Echo testing mock response simulation:
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('🎉 Testing Mode: Bingo Claim Sent & Received by Echo Server!'),
-                  backgroundColor: Colors.green,
-                ),
-              );
+            final String event = data['event'];
+
+            switch (event) {
+              case 'card_assigned':
+                setState(() {
+                  _bingoCardNumbers = data['card'];
+                  // Explicitly sync and auto-daub the center FREE space safely matching server parameters
+                  _daubedStates[2][2] = true;
+                  _gameStatusMessage = "Card assigned! Room: ${data['room_id']}";
+                });
+                break;
+
+              case 'player_joined':
+                setState(() {
+                  _gameStatusMessage = "${data['username']} joined! (${data['total_players']} players inside)";
+                });
+                break;
+
+              case 'game_started':
+                setState(() {
+                  _gameStarted = true;
+                  _gameStatusMessage = "🚀 The match is LIVE! Focus up!";
+                });
+                break;
+
+              case 'number_drawn':
+                setState(() {
+                  int newNumber = data['number'];
+                  _currentDrawnNumber = newNumber;
+                  _drawnNumbers.clear();
+                  _drawnNumbers.addAll(List<int>.from(data['history']));
+                });
+                break;
+
+              case 'game_over':
+                setState(() {
+                  _gameStarted = false;
+                  _gameStatusMessage = data['winner'] != null 
+                      ? "🎉 Game Over! Winner: ${data['winner']}" 
+                      : "Game Over: ${data['reason']}";
+                });
+                break;
+
+              case 'invalid_claim':
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(data['message']),
+                    backgroundColor: Colors.orange[800],
+                  ),
+                );
+                break;
             }
           } catch (e) {
-            // Raw text fallback if the test server sends a welcome text broadcast string
-            debugPrint("Received broadcast text: $message");
+            debugPrint("Parsing error: $e");
           }
         },
         onError: (error) => setState(() => _isConnected = false),
@@ -90,30 +124,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
     }
   }
 
-  void _generateStandardBingoCard() {
-    final random = Random();
-    List<List<int>> columns = [];
-    
-    for (int i = 0; i < 5; i++) {
-      int min = (i * 15) + 1;
-      Set<int> columnNumbers = {};
-      while (columnNumbers.length < 5) {
-        columnNumbers.add(min + random.nextInt(15));
-      }
-      columns.add(columnNumbers.toList());
-    }
-
-    _bingoCardNumbers = List.generate(5, (row) {
-      return List.generate(5, (col) {
-        if (row == 2 && col == 2) {
-          _daubedStates[row][col] = true; 
-          return "FREE";
-        }
-        return columns[col][row].toString();
-      });
-    });
-  }
-
   void _claimBingo() {
     if (_channel == null || !_isConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -122,11 +132,9 @@ class _BingoGamePageState extends State<BingoGamePage> {
       return;
     }
 
-    // Secure Verification payload structural blueprint
+    // Direct, unalterable claim request. Server validates against its internal records.
     final payload = {
-      'action': 'claim_bingo',
-      'card': _bingoCardNumbers,
-      'daubed': _daubedStates,
+      'action': 'claim_bingo'
     };
 
     _channel!.sink.add(jsonEncode(payload));
@@ -142,7 +150,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isConnected ? 'Live Multiplayer Bingo 🟢' : 'Connecting to Server... 🔴'),
+        title: Text(_isConnected ? 'Authoritative Bingo 🟢' : 'Connecting to Engine... 🔴'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         centerTitle: true,
@@ -151,6 +159,16 @@ class _BingoGamePageState extends State<BingoGamePage> {
         color: Colors.grey[100],
         child: Column(
           children: [
+            Container(
+              width: double.infinity,
+              color: Colors.indigo[900],
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                _gameStatusMessage,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w500),
+              ),
+            ),
             Card(
               margin: const EdgeInsets.all(16.0),
               elevation: 4,
@@ -228,7 +246,8 @@ class _BingoGamePageState extends State<BingoGamePage> {
                           itemBuilder: (context, index) {
                             int row = index ~/ 5;
                             int col = index % 5;
-                            String val = _bingoCardNumbers[row][col];
+                            var rawVal = _bingoCardNumbers[row][col];
+                            String val = rawVal == 0 ? "FREE" : rawVal.toString();
                             bool isDaubed = _daubedStates[row][col];
 
                             return GestureDetector(
@@ -282,7 +301,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
                 child: ElevatedButton(
-                  onPressed: _claimBingo,
+                  onPressed: _gameStarted ? _claimBingo : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green[600],
                     foregroundColor: Colors.white,
