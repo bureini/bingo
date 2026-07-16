@@ -7,6 +7,25 @@ on:
 
 permissions:
   contents: write
+  pages: write      # Grants permission to explicitly bind pages environments
+  id-token: write
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: https://bureini.github.io/${{ github.event.repository.name }}/
+
+name: Auto-Generate and Deploy Flutter Project
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
 
 jobs:
   build_and_deploy:
