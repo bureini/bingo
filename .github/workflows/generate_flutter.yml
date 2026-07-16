@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: write
-  pages: write      # Grants permission to explicitly bind pages environments
+  pages: write
   id-token: write
 
 jobs:
@@ -16,16 +16,6 @@ jobs:
     environment:
       name: github-pages
       url: https://bureini.github.io/${{ github.event.repository.name }}/
-
-name: Auto-Generate and Deploy Flutter Project
-
-on:
-  push:
-    branches:
-      - main
-
-permissions:
-  contents: write
 
     steps:
       - name: Checkout Code
@@ -40,7 +30,6 @@ permissions:
 
       - name: Structural Alignment Safety
         run: |
-          # If pubspec.yaml is missing, build a clean structural matrix
           if [ ! -f "pubspec.yaml" ]; then
             echo "Initializing fresh web architecture structure..."
             if [ -f "main.dart" ]; then
@@ -66,7 +55,6 @@ permissions:
 
       - name: Clean Conflicting Entrypoints
         run: |
-          # Ensure code lives strictly inside /lib to prevent dart2js compiler bugs
           if [ -f "main.dart" ] && [ -f "lib/main.dart" ]; then
             rm -f main.dart
           fi
