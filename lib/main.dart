@@ -18,13 +18,116 @@ class BingoApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: const BingoGamePage(),
+      home: const BingoJoinPage(), // Start at the Room Entry Lobby
     );
   }
 }
 
+// --- NEW LOBBY SCREEN ---
+class BingoJoinPage extends StatefulWidget {
+  const BingoJoinPage({super.key});
+
+  @override
+  State<BingoJoinPage> createState() => _BingoJoinPageState();
+}
+
+class _BingoJoinPageState extends State<BingoJoinPage> {
+  final _roomController = TextEditingController(text: "ROOM101");
+  final _nameController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _roomController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _joinGame() {
+    if (_formKey.currentState!.validate()) {
+      final username = _nameController.text.trim();
+      final roomId = _roomController.text.trim().toUpperCase();
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => BingoGamePage(roomId: roomId, username: username),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 400),
+          padding: const EdgeInsets.all(24.0),
+          child: Card(
+            elevation: 8,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.casino, size: 64, color: Colors.indigo),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Multiplayer Bingo',
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.indigo),
+                    ),
+                    const SizedBox(height: 24),
+                    TextFormField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Enter Your Nickname',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                      validator: (value) => (value == null || value.trim().isEmpty) ? 'Nickname required' : null,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _roomController,
+                      decoration: const InputDecoration(
+                        labelText: 'Enter Room Code',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.meeting_room),
+                      ),
+                      validator: (value) => (value == null || value.trim().isEmpty) ? 'Room code required' : null,
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: _joinGame,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.indigo,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text('Enter Match Lobby', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// --- ACTIVE GAME ROOM ---
 class BingoGamePage extends StatefulWidget {
-  const BingoGamePage({super.key});
+  final String roomId;
+  final String username;
+
+  const BingoGamePage({super.key, required this.roomId, required this.username});
 
   @override
   State<BingoGamePage> createState() => _BingoGamePageState();
@@ -41,12 +144,9 @@ class _BingoGamePageState extends State<BingoGamePage> {
   bool _gameStarted = false;
   String _gameStatusMessage = "Connecting to game server...";
 
-  // NOTE: For local network testing, you can use 'ws://localhost:8080/ws/room101/User'
-  // When deploying live, swap this out for your hosted WebSocket domain URL.
-  
-  // Update this target line inside your production lib/main.dart setup:
-  final String _wsUrl = 'wss://bingo-multiplayer-backend.onrender.com/ws/room101/Player_${100 + (DateTime.now().millisecondsSinceEpoch % 900)}';
-  
+  // Authoritative WebSocket path construction targeting our live endpoint definition parameters
+  String get _wsUrl => 'wss://bingo-multiplayer-backend.onrender.com/ws/${widget.roomId}/${widget.username}';
+
   @override
   void initState() {
     super.initState();
@@ -68,22 +168,21 @@ class _BingoGamePageState extends State<BingoGamePage> {
               case 'card_assigned':
                 setState(() {
                   _bingoCardNumbers = data['card'];
-                  // Explicitly sync and auto-daub the center FREE space safely matching server parameters
-                  _daubedStates[2][2] = true;
-                  _gameStatusMessage = "Card assigned! Room: ${data['room_id']}";
+                  _daubedStates[2][2] = true; // Auto-daub center free space
+                  _gameStatusMessage = "Room: ${data['room_id']} | Playing as: ${data['username']}";
                 });
                 break;
 
               case 'player_joined':
                 setState(() {
-                  _gameStatusMessage = "${data['username']} joined! (${data['total_players']} players inside)";
+                  _gameStatusMessage = "Lobby: ${data['total_players']} Player(s) inside. Waiting for host...";
                 });
                 break;
 
               case 'game_started':
                 setState(() {
                   _gameStarted = true;
-                  _gameStatusMessage = "🚀 The match is LIVE! Focus up!";
+                  _gameStatusMessage = "🚀 Match Live! Match Room: ${widget.roomId}";
                 });
                 break;
 
@@ -100,7 +199,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                 setState(() {
                   _gameStarted = false;
                   _gameStatusMessage = data['winner'] != null 
-                      ? "🎉 Game Over! Winner: ${data['winner']}" 
+                      ? "🎉 Winner: ${data['winner']}!" 
                       : "Game Over: ${data['reason']}";
                 });
                 break;
@@ -127,19 +226,8 @@ class _BingoGamePageState extends State<BingoGamePage> {
   }
 
   void _claimBingo() {
-    if (_channel == null || !_isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Not connected to game server!')),
-      );
-      return;
-    }
-
-    // Direct, unalterable claim request. Server validates against its internal records.
-    final payload = {
-      'action': 'claim_bingo'
-    };
-
-    _channel!.sink.add(jsonEncode(payload));
+    if (_channel == null || !_isConnected) return;
+    _channel!.sink.add(jsonEncode({'action': 'claim_bingo'}));
   }
 
   @override
@@ -152,10 +240,14 @@ class _BingoGamePageState extends State<BingoGamePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isConnected ? 'Authoritative Bingo 🟢' : 'Connecting to Engine... 🔴'),
+        title: Text(_isConnected ? 'Bingo Arena 🟢' : 'Server Disconnected 🔴'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: Container(
         color: Colors.grey[100],
@@ -227,11 +319,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: const ['B', 'I', 'N', 'G', 'O'].map((letter) => Expanded(
                           child: Center(
-                            child: Text(
-                              letter,
-                              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.indigo),
-                            ),
-                          ),
+                            child: Text(letter, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.indigo))),
                         )).toList(),
                       ),
                       const SizedBox(height: 8),
@@ -255,18 +343,13 @@ class _BingoGamePageState extends State<BingoGamePage> {
                             return GestureDetector(
                               onTap: () {
                                 if (row == 2 && col == 2) return;
-                                setState(() {
-                                  _daubedStates[row][col] = !isDaubed;
-                                });
+                                setState(() => _daubedStates[row][col] = !isDaubed);
                               },
                               child: Container(
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(color: const Color(0xFFC5CAE9), width: 1.5),
-                                  boxShadow: const [
-                                    BoxShadow(color: Colors.black12, offset: Offset(0, 2), blurRadius: 4)
-                                  ],
                                 ),
                                 child: Stack(
                                   alignment: Alignment.center,
@@ -281,10 +364,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                     ),
                                     if (isDaubed)
                                       Container(
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: Colors.red.withOpacity(0.45),
-                                        ),
+                                        decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.red.withOpacity(0.45)),
                                         margin: const EdgeInsets.all(6),
                                       ),
                                   ],
