@@ -23,7 +23,7 @@ class BingoApp extends StatelessWidget {
   }
 }
 
-// --- NEW DYNAMIC LOBBY INTERFACE ---
+// --- DYNAMIC LOBBY INTERFACE ---
 class BingoJoinLobbyPage extends StatefulWidget {
   const BingoJoinLobbyPage({super.key});
 
@@ -131,7 +131,7 @@ class BingoGamePage extends StatefulWidget {
   const BingoGamePage({super.key, required this.roomId, required this.username});
 
   @override
-  State<BingoGamePage> createState() => _BingoGamePageState();
+  Widget build(BuildContext context) => _BingoGamePageState();
 }
 
 class _BingoGamePageState extends State<BingoGamePage> {
@@ -145,7 +145,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
   bool _gameStarted = false;
   String _gameStatusMessage = "Connecting to game server...";
 
-  // Dynamically targets your newly verified cloud server using secure WebSockets (wss://)
+  // Explicit target using production Render environment secure web sockets
   String get _wsUrl => 'wss://bingo-multiplayer-backend.onrender.com/ws/${widget.roomId}/${widget.username}';
 
   @override
@@ -169,7 +169,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
               case 'card_assigned':
                 setState(() {
                   _bingoCardNumbers = data['card'];
-                  _daubedStates[2][2] = true; // Auto-daub center FREE space
+                  _daubedStates[2][2] = true; // Secure center FREE space sync
                   _gameStatusMessage = "Connected to Room: ${data['room_id']}";
                 });
                 break;
