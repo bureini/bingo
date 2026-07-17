@@ -18,7 +18,7 @@ class BingoApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: const BingoJoinLobbyPage(), // Launches into the Room Menu
+      home: const BingoJoinLobbyPage(),
     );
   }
 }
@@ -131,7 +131,7 @@ class BingoGamePage extends StatefulWidget {
   const BingoGamePage({super.key, required this.roomId, required this.username});
 
   @override
-  State<BingoGamePage> createState() => _BingoGamePageState(); // FIXED: Correct State Lifecycle Hook
+  State<BingoGamePage> createState() => _BingoGamePageState();
 }
 
 class _BingoGamePageState extends State<BingoGamePage> {
@@ -145,7 +145,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
   bool _gameStarted = false;
   String _gameStatusMessage = "Connecting to game server...";
 
-  // Explicit target using production Render environment secure web sockets
   String get _wsUrl => 'wss://bingo-multiplayer-backend.onrender.com/ws/${widget.roomId}/${widget.username}';
 
   @override
@@ -169,7 +168,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
               case 'card_assigned':
                 setState(() {
                   _bingoCardNumbers = data['card'];
-                  _daubedStates[2][2] = true; // Secure center FREE space sync
+                  _daubedStates[2][2] = true; 
                   _gameStatusMessage = "Connected to Room: ${data['room_id']}";
                 });
                 break;
@@ -183,7 +182,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
               case 'game_started':
                 setState(() {
                   _gameStarted = true;
-                  _gameStatusMessage = "🚀 Game Live! Room: ${widget.roomId}";
+                  _gameStatusMessage = "🎮 Game Live! Room: ${widget.roomId}";
                 });
                 break;
 
@@ -200,7 +199,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                 setState(() {
                   _gameStarted = false;
                   _gameStatusMessage = data['winner'] != null 
-                      ? "🎉 Winner: ${data['winner']}!" 
+                      ? "🏆 Winner: ${data['winner']}!" 
                       : "Game Over: ${data['reason']}";
                 });
                 break;
@@ -239,15 +238,20 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
   @override
   Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    // Dynamic constraint threshold to optimize dense layout sizing rules on standard smaller devices
+    final isMobile = mediaQuery.size.height < 780;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isConnected ? 'Bingo Arena 🟢' : 'Connecting... 🔴'),
+        title: Text(_isConnected ? 'Bingo Arena 🎴' : 'Connecting... 📡'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         centerTitle: true,
       ),
       body: Column(
         children: [
+          // 1. Connection Status Bar Block
           Container(
             width: double.infinity,
             color: Colors.indigo[900],
@@ -258,66 +262,79 @@ class _BingoGamePageState extends State<BingoGamePage> {
               style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w500),
             ),
           ),
-          Card(
-            margin: const EdgeInsets.all(16.0),
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  Column(
-                    children: [
-                      const Text('CURRENT NUMBER', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 8),
-                      CircleAvatar(
-                        radius: 36,
-                        backgroundColor: Colors.amber[700],
-                        child: Text(
-                          _currentDrawnNumber != null ? '$_currentDrawnNumber' : '--',
-                          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('RECENT DRAWS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: _drawnNumbers.reversed.skip(1).take(4).map((num) => Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          padding: const EdgeInsets.all(8),
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFE8EAF6),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Text('$num', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-                        )).toList(),
-                      )
-                    ],
-                  )
-                ],
-              ),
-            ),
-          ),
+          
+          // 2. Expandable Scroll Block containing Dashboard Elements & Board Matrix Grid
           Expanded(
-            child: Center(
+            child: SingleChildScrollView(
+              physics: const ClampingScrollPhysics(),
               child: Container(
                 constraints: const BoxConstraints(maxWidth: 450),
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const ['B', 'I', 'N', 'G', 'O'].map((letter) => Expanded(
-                        child: Center(
-                          child: Text(letter, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.indigo))),
-                      )).toList(),
+                    // Dynamic Summary HUD Display Card
+                    Card(
+                      margin: EdgeInsets.symmetric(vertical: isMobile ? 8.0 : 16.0),
+                      elevation: 4,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: isMobile ? 10.0 : 20.0, 
+                          horizontal: 16.0
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            Column(
+                              children: [
+                                const Text('CURRENT NUMBER', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+                                const SizedBox(height: 4),
+                                CircleAvatar(
+                                  radius: isMobile ? 26 : 36,
+                                  backgroundColor: Colors.amber[700],
+                                  child: Text(
+                                    _currentDrawnNumber != null ? '$_currentDrawnNumber' : '--',
+                                    style: TextStyle(fontSize: isMobile ? 24 : 32, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('RECENT DRAWS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: _drawnNumbers.reversed.skip(1).take(4).map((num) => Container(
+                                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                                    padding: EdgeInsets.all(isMobile ? 6 : 8),
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFE8EAF6),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Text('$num', style: TextStyle(fontSize: isMobile ? 12 : 14, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                                  )).toList(),
+                                )
+                              ],
+                            )
+                          ],
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 8),
+                    
+                    // Letter Title Header Track
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: const ['B', 'I', 'N', 'G', 'O'].map((letter) => Expanded(
+                          child: Center(
+                            child: Text(letter, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.indigo))),
+                        )).toList(),
+                      ),
+                    ),
+                    
+                    // Native Aspect Ratio Grid Frame 
                     AspectRatio(
                       aspectRatio: 1,
                       child: GridView.builder(
@@ -352,7 +369,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                   Text(
                                     val,
                                     style: TextStyle(
-                                      fontSize: val == "FREE" ? 14 : 20,
+                                      fontSize: val == "FREE" ? (isMobile ? 11 : 14) : (isMobile ? 16 : 20),
                                       fontWeight: FontWeight.bold,
                                       color: val == "FREE" ? Colors.amber[900] : Colors.black87,
                                     ),
@@ -369,21 +386,27 @@ class _BingoGamePageState extends State<BingoGamePage> {
                         },
                       ),
                     ),
+                    const SizedBox(height: 16),
                   ],
                 ),
               ),
             ),
           ),
+          
+          // 3. Persistent Operational Footer Button Layer
           SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
+            top: false,
+            child: Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(maxWidth: 450),
+              padding: EdgeInsets.fromLTRB(24.0, 8.0, 24.0, isMobile ? 12.0 : 24.0),
               child: ElevatedButton(
                 onPressed: _gameStarted ? _claimBingo : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green[600],
                   foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 54),
-                  textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  minimumSize: Size(double.infinity, isMobile ? 46 : 54),
+                  textStyle: TextStyle(fontSize: isMobile ? 18 : 20, fontWeight: FontWeight.bold),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: const Text('BINGO!'),
