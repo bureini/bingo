@@ -43,8 +43,10 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
   // NOTE: For local network testing, you can use 'ws://localhost:8080/ws/room101/User'
   // When deploying live, swap this out for your hosted WebSocket domain URL.
-  final String _wsUrl = 'ws://localhost:8080/ws/room101/Player_${100 + (DateTime.now().millisecondsSinceEpoch % 900)}';
-
+  
+  // Update this target line inside your production lib/main.dart setup:
+  final String _wsUrl = 'wss://bingo-multiplayer-backend.onrender.com/ws/room101/Player_${100 + (DateTime.now().millisecondsSinceEpoch % 900)}';
+  
   @override
   void initState() {
     super.initState();
