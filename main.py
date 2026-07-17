@@ -122,7 +122,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
         while True:
             data = await websocket.receive_text()
             payload = json.loads(data)
-            if payload.get("action") == "claim_bingo" and not room.game_over:
+            action = payload.get("action")
+            
+            if action == "claim_bingo" and not room.game_over:
                 if room.verify_bingo(player.card):
                     room.game_over = True
                     await room.broadcast({
@@ -135,6 +137,17 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                         "event": "invalid_claim",
                         "message": "Your board doesn't match the drawn numbers yet!"
                     }))
+            
+            # Real-time message multiplexed router
+            elif action == "send_message":
+                msg_text = payload.get("message", "").strip()
+                if msg_text:
+                    await room.broadcast({
+                        "event": "chat_message",
+                        "sender": username,
+                        "message": msg_text
+                    })
+                    
     except WebSocketDisconnect:
         if username in room.players:
             del room.players[username]
