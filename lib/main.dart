@@ -131,7 +131,7 @@ class BingoGamePage extends StatefulWidget {
   const BingoGamePage({super.key, required this.roomId, required this.username});
 
   @override
-  Widget build(BuildContext context) => _BingoGamePageState();
+  State<BingoGamePage> createState() => _BingoGamePageState(); // FIXED: Correct State Lifecycle Hook
 }
 
 class _BingoGamePageState extends State<BingoGamePage> {
