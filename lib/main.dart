@@ -123,7 +123,7 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
   }
 }
 
-// --- GAME ROOM CLIENT ---
+// --- GAME ROOM CLIENT WITH COLLAPSIBLE DRAWER CHAT ---
 class BingoGamePage extends StatefulWidget {
   final String roomId;
   final String username;
@@ -144,6 +144,11 @@ class _BingoGamePageState extends State<BingoGamePage> {
   bool _isConnected = false;
   bool _gameStarted = false;
   String _gameStatusMessage = "Connecting to game server...";
+
+  // Chat Log Infrastructure States
+  final List<Map<String, String>> _chatMessages = [];
+  final _chatTextController = TextEditingController();
+  final _chatScrollController = ScrollController();
 
   String get _wsUrl => 'wss://bingo-multiplayer-backend.onrender.com/ws/${widget.roomId}/${widget.username}';
 
@@ -195,6 +200,25 @@ class _BingoGamePageState extends State<BingoGamePage> {
                 });
                 break;
 
+              case 'chat_message':
+                setState(() {
+                  _chatMessages.add({
+                    'sender': data['sender'],
+                    'message': data['message'],
+                  });
+                });
+                // Ensure chat logs smoothly slide downwards as new data items arrive
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (_chatScrollController.hasClients) {
+                    _chatScrollController.animateTo(
+                      _chatScrollController.position.maxScrollExtent,
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOut,
+                    );
+                  }
+                });
+                break;
+
               case 'game_over':
                 setState(() {
                   _gameStarted = false;
@@ -225,6 +249,17 @@ class _BingoGamePageState extends State<BingoGamePage> {
     }
   }
 
+  void _sendChatMessage() {
+    final text = _chatTextController.text.trim();
+    if (text.isEmpty || _channel == null || !_isConnected) return;
+    
+    _channel!.sink.add(jsonEncode({
+      'action': 'send_message',
+      'message': text,
+    }));
+    _chatTextController.clear();
+  }
+
   void _claimBingo() {
     if (_channel == null || !_isConnected) return;
     _channel!.sink.add(jsonEncode({'action': 'claim_bingo'}));
@@ -233,13 +268,14 @@ class _BingoGamePageState extends State<BingoGamePage> {
   @override
   void dispose() {
     _channel?.sink.close();
+    _chatTextController.dispose();
+    _chatScrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    // Dynamic constraint threshold to optimize dense layout sizing rules on standard smaller devices
     final isMobile = mediaQuery.size.height < 780;
 
     return Scaffold(
@@ -248,10 +284,102 @@ class _BingoGamePageState extends State<BingoGamePage> {
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         centerTitle: true,
+        actions: [
+          Builder(
+            builder: (context) => IconButton(
+              icon: const Badge(
+                label: Text('Chat'),
+                child: Icon(Icons.chat_bubble),
+              ),
+              onPressed: () => Scaffold.of(context).openEndDrawer(),
+            ),
+          ),
+        ],
+      ),
+      // --- COLLAPSIBLE DRAWING DRAWER MECHANISM ---
+      endDrawer: Drawer(
+        width: MediaQuery.of(context).size.width * 0.85,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Column(
+            children: [
+              Container(
+                color: Colors.indigo,
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                child: const Text(
+                  'Room Chat Log',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              Expanded(
+                child: _chatMessages.isEmpty
+                    ? Center(child: Text('No messages yet', style: TextStyle(color: Colors.grey[500])))
+                    : ListView.builder(
+                        controller: _chatScrollController,
+                        padding: const EdgeInsets.all(12),
+                        itemCount: _chatMessages.length,
+                        itemBuilder: (context, index) {
+                          final msg = _chatMessages[index];
+                          final isMe = msg['sender'] == widget.username;
+                          return Align(
+                            alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                              decoration: BoxDecoration(
+                                color: isMe ? Colors.indigo[100] : Colors.grey[200],
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    msg['sender']!,
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo[900]),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(msg['message']!, style: const TextStyle(fontSize: 14, color: Colors.black87)),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              const Divider(height: 1),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _chatTextController,
+                          decoration: const InputDecoration(
+                            hintText: 'Type a message...',
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          onSubmitted: (_) => _sendChatMessage(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.send, color: Colors.indigo),
+                        onPressed: _sendChatMessage,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
       body: Column(
         children: [
-          // 1. Connection Status Bar Block
           Container(
             width: double.infinity,
             color: Colors.indigo[900],
@@ -262,8 +390,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
               style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w500),
             ),
           ),
-          
-          // 2. Expandable Scroll Block containing Dashboard Elements & Board Matrix Grid
           Expanded(
             child: SingleChildScrollView(
               physics: const ClampingScrollPhysics(),
@@ -273,7 +399,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Dynamic Summary HUD Display Card
                     Card(
                       margin: EdgeInsets.symmetric(vertical: isMobile ? 8.0 : 16.0),
                       elevation: 4,
@@ -321,8 +446,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
                         ),
                       ),
                     ),
-                    
-                    // Letter Title Header Track
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4.0),
                       child: Row(
@@ -333,8 +456,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
                         )).toList(),
                       ),
                     ),
-                    
-                    // Native Aspect Ratio Grid Frame 
                     AspectRatio(
                       aspectRatio: 1,
                       child: GridView.builder(
@@ -392,8 +513,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
               ),
             ),
           ),
-          
-          // 3. Persistent Operational Footer Button Layer
           SafeArea(
             top: false,
             child: Container(
