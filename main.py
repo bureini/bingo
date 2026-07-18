@@ -1,13 +1,19 @@
 import asyncio
 import json
-import random
-import smtplib
-from email.mime.text import MIMEText
-from typing import Dict, List
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
 import os
+import random
+import time
+from typing import Dict, List, Optional
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status
+from pydantic import BaseModel
+import jwt
 
-app = FastAPI(title="Authoritative Regulated Bingo Engine")
+app = FastAPI(title="Authoritative Secure Bingo Backend")
+
+# Security Configurations
+JWT_SECRET = os.getenv("JWT_SECRET", "YOUR_SUPER_SECRET_SECURITY_KEY")
+JWT_ALGORITHM = "HS256"
+ADMIN_PASSWORD = os.getenv("BINGO_ADMIN_PASSWORD", "SuperSecureAdminPassword123")
 
 BINGO_RANGES = {
     'B': (1, 15),
@@ -17,57 +23,43 @@ BINGO_RANGES = {
     'O': (61, 75)
 }
 
-ADMIN_EMAIL = "bureiniuarai@gmail.com"
+def create_admin_token(username: str) -> str:
+    payload = {
+        "sub": username,
+        "role": "admin",
+        "exp": time.time() + 86400  # Valid for 24 Hours
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-def send_sync_email(username: str, room_id: str):
-    """Establishes an authentic SMTP handshake to deliver entry notification emails via TLS."""
-    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    sender_email = os.environ.get("SENDER_EMAIL")
-    sender_password = os.environ.get("SENDER_PASSWORD")
-
-    if not sender_email or not sender_password:
-        print("[MAIL ERROR] Config variables missing. Set SENDER_EMAIL and SENDER_PASSWORD on Render.")
-        return
-
-    msg = MIMEText(f"Hello Administrator,\n\nA new player '{username}' has successfully entered live Bingo room '{room_id}'.\n\nRegards,\nBingo Automated Engine")
-    msg["Subject"] = f"🔔 Bingo Alert: {username} Joined {room_id}"
-    msg["From"] = sender_email
-    msg["To"] = ADMIN_EMAIL
-
-    try:
-        with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, [ADMIN_EMAIL], msg.as_string())
-        print(f"[MAIL SUCCESS] Notification successfully delivered to {ADMIN_EMAIL}")
-    except Exception as e:
-        print(f"[MAIL ERROR] SMTP secure transaction protocol failed: {e}")
-
-async def send_async_entry_notification(username: str, room_id: str):
-    """Offloads network-heavy SMTP transactions out of the primary WebSocket runtime thread loop."""
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, send_sync_email, username, room_id)
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str
 
 class Player:
-    def __init__(self, username: str, websocket: WebSocket):
+    def __init__(self, username: str, websocket: WebSocket, card_type: str = "classic", is_admin: bool = False):
         self.username = username
         self.websocket = websocket
+        self.is_admin = is_admin
+        self.card_type = card_type
         self.card = self.generate_card()
-        # Authoritative server daub checking array matrix (False = un-marked, True = marked)
-        self.daubed_grid = [[False] * 5 for _ in range(5)]
-        self.daubed_grid[2][2] = True  # Auto-daub standard center FREE space
-        self.is_active = True
 
     def generate_card(self) -> List[List[int]]:
+        """Generates either a 5x5 (classic) or a 3x3 (speed) Bingo matrix safely."""
+        dim = 5 if self.card_type == "classic" else 3
         columns = {}
-        for letter, (low, high) in BINGO_RANGES.items():
-            columns[letter] = random.sample(range(low, high + 1), 5)
+        
+        # Select subsets depending on grid layout size constraints
+        letters = ['B', 'I', 'N', 'G', 'O'] if dim == 5 else ['B', 'N', 'O']
+        for letter in letters:
+            low, high = BINGO_RANGES[letter]
+            columns[letter] = random.sample(range(low, high + 1), dim)
+        
         card = []
-        for row_idx in range(5):
+        for row_idx in range(dim):
             row = []
-            for col_idx, letter in enumerate(['B', 'I', 'N', 'G', 'O']):
-                if row_idx == 2 and col_idx == 2:
+            for col_idx, letter in enumerate(letters):
+                # Free space handling centered on standard 5x5 rules
+                if dim == 5 and row_idx == 2 and col_idx == 2:
                     row.append(0)
                 else:
                     row.append(columns[letter][row_idx])
@@ -83,142 +75,109 @@ class BingoRoom:
         random.shuffle(self.available_numbers)
         self.game_started = False
         self.game_over = False
-        self.loop_task: asyncio.Task = None
-
-    def get_active_usernames(self) -> List[str]:
-        return [p.username for p in self.players.values() if p.is_active]
+        self.loop_task: Optional[asyncio.Task] = None
+        
+        # Configuration parameters customizable only by an authenticated admin
+        self.rule_type = "standard"  # standard, blackout, corners
+        self.card_type = "classic"   # classic (5x5), speed (3x3)
 
     async def broadcast(self, message: dict):
         payload = json.dumps(message)
-        for username, player in list(self.players.items()):
-            if player.is_active:
-                try:
-                    await player.websocket.send_text(payload)
-                except Exception:
-                    player.is_active = False
-
-    async def broadcast_user_list(self):
-        await self.broadcast({
-            "event": "room_users_update",
-            "users": self.get_active_usernames()
-        })
+        disconnected = []
+        for username, player in self.players.items():
+            try:
+                await player.websocket.send_text(payload)
+            except Exception:
+                disconnected.append(username)
+        for username in disconnected:
+            if username in self.players:
+                del self.players[username]
 
     async def start_game_loop(self):
         self.game_started = True
-        await self.broadcast({"event": "game_started", "message": "The game has begun!"})
+        await self.broadcast({
+            "event": "game_started", 
+            "message": f"Game Live! Target rule: {self.rule_type.upper()} ({self.card_type})"
+        })
+        
         while self.available_numbers and not self.game_over:
             await asyncio.sleep(5.0)
             if self.game_over:
                 break
-            
-            # --- "NEVER LOSE" TESTING ENGINE MECHANISM ---
-            chosen_num = None
-            active_players = [p for p in self.players.values() if p.is_active]
-            if active_players:
-                target_player = active_players[0]  # Prioritize the first active testing user
-                flat_card = [num for row in target_player.card for num in row if num != 0]
-                undrawn_card_nums = [n for n in flat_card if n not in self.drawn_numbers and n in self.available_numbers]
-                
-                # Heavy 80% extraction bias targeting numbers remaining on their card grid
-                if undrawn_card_nums and random.random() < 0.80:
-                    chosen_num = random.choice(undrawn_card_nums)
-                    self.available_numbers.remove(chosen_num)
-
-            if not chosen_num:
-                chosen_num = self.available_numbers.pop()
-
-            self.drawn_numbers.append(chosen_num)
+            num = self.available_numbers.pop()
+            self.drawn_numbers.append(num)
             await self.broadcast({
                 "event": "number_drawn",
-                "number": chosen_num,
+                "number": num,
                 "history": self.drawn_numbers
             })
 
-    def verify_bingo(self, player: Player) -> bool:
-        """Verifies if the player's server-validated daubs form a legal winning vector."""
-        marked = player.daubed_grid
+    def verify_bingo(self, player_card: List[List[int]]) -> bool:
+        drawn_set = set(self.drawn_numbers) | {0}
+        dim = len(player_card)
+        marked = [[player_card[r][c] in drawn_set for c in range(dim)] for r in range(dim)]
+        
+        if self.rule_type == "blackout":
+            return all(all(row) for row in marked)
+            
+        if self.rule_type == "corners":
+            return marked[0][0] and marked[0][dim-1] and marked[dim-1][0] and marked[dim-1][dim-1]
+            
+        # Standard rules loop evaluation (Row, Column, Diagonals)
         if any(all(row) for row in marked): return True
-        if any(all(marked[r][c] for r in range(5)) for c in range(5)): return True
-        if all(marked[i][i] for i in range(5)) or all(marked[i][4 - i] for i in range(5)): return True
+        if any(all(marked[r][c] for r in range(dim)) for c in range(dim)): return True
+        if all(marked[i][i] for i in range(dim)) or all(marked[i][dim - 1 - i] for i in range(dim)): return True
         return False
 
-# CRITICAL POLICY: Restrict allocation to exactly two pre-initialized structures
-rooms: Dict[str, BingoRoom] = {
-    "ROOM100": BingoRoom("ROOM100"),
-    "ROOM101": BingoRoom("ROOM101")
-}
-
-@app.get("/admin/dashboard")
-def admin_dashboard():
-    """Authoritative administrative metrics dashboard endpoint."""
-    return {
-        "status": "operational",
-        "total_managed_rooms": len(rooms),
-        "room_metrics": {
-            r_id: {
-                "active_users": r.get_active_usernames(),
-                "total_count": len(r.get_active_usernames()),
-                "is_active_match": r.game_started,
-                "balls_drawn": len(r.drawn_numbers)
-            } for r_id, r in rooms.items()
-        }
-    }
+rooms: Dict[str, BingoRoom] = {}
 
 @app.get("/")
 def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy", "game": "Bingo Engine Security Layer Active"}
+
+@app.post("/api/admin/login")
+def admin_login(credentials: AdminLoginRequest):
+    if credentials.password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin password.")
+    token = create_admin_token(credentials.username)
+    return {"access_token": token, "token_type": "bearer", "username": credentials.username}
 
 @app.websocket("/ws/{room_id}/{username}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, background_tasks: BackgroundTasks):
-    room_id = room_id.upper().strip()
-    
-    # Check 1: Enforce Strict Room Authorization Set Bounds
-    if room_id not in rooms:
-        await websocket.accept()
-        await websocket.send_text(json.dumps({"event": "invalid_claim", "message": "Access Denied: Room must be ROOM100 or ROOM101."}))
-        await websocket.close()
-        return
-
-    room = rooms[room_id]
-    active_count = len(room.get_active_usernames())
-
-    # Check 2: Hard-capped lobby safety check (1-80 players max)
-    if active_count >= 80 and username not in room.players:
-        await websocket.accept()
-        await websocket.send_text(json.dumps({"event": "invalid_claim", "message": "Lobby Full: This room has reached its 80 player maximum."}))
-        await websocket.close()
-        return
-
+async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, token: Optional[str] = None):
     await websocket.accept()
-    is_new_player = username not in room.players
     
-    # State recovery and re-entry hook integration
-    if username in room.players:
-        player = room.players[username]
-        player.websocket = websocket
-        player.is_active = True
-        event_type = "player_reconnected"
-    else:
-        player = Player(username, websocket)
-        room.players[username] = player
-        event_type = "card_assigned"
+    is_admin_user = False
+    if token:
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            if payload.get("role") == "admin" and payload.get("sub") == username:
+                is_admin_user = True
+        except jwt.PyJWTError:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+    if room_id not in rooms:
+        rooms[room_id] = BingoRoom(room_id)
+    room = rooms[room_id]
+    
+    player = Player(username, websocket, card_type=room.card_type, is_admin=is_admin_user)
+    room.players[username] = player
     
     await websocket.send_text(json.dumps({
-        "event": event_type,
+        "event": "card_assigned",
         "card": player.card,
-        "daubed_grid": player.daubed_grid,
+        "card_type": room.card_type,
         "username": username,
-        "room_id": room_id,
-        "history": room.drawn_numbers,
-        "game_started": room.game_started
+        "room_id": room_id
     }))
     
-    if is_new_player:
-        background_tasks.add_task(send_async_entry_notification, username, room_id)
+    await room.broadcast({
+        "event": "player_joined",
+        "username": username,
+        "total_players": len(room.players)
+    })
     
-    await room.broadcast_user_list()
-    
-    if len(room.get_active_usernames()) >= 2 and not room.game_started:
+    if len(room.players) >= 2 and not room.game_started and not is_admin_user:
         room.loop_task = asyncio.create_task(room.start_game_loop())
 
     try:
@@ -227,37 +186,59 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
             payload = json.loads(data)
             action = payload.get("action")
             
-            if action == "toggle_daub":
-                row, col = payload.get("row"), payload.get("col")
-                if isinstance(row, int) and isinstance(col, int) and 0 <= row < 5 and 0 <= col < 5:
-                    target_num = player.card[row][col]
-                    # Anti-Cheat Validation: Only sync marker if number was officially drawn or is FREE (0)
-                    if target_num == 0 or target_num in room.drawn_numbers:
-                        player.daubed_grid[row][col] = not player.daubed_grid[row][col]
-            
+            if action == "update_room_rules":
+                if not player.is_admin:
+                    await websocket.send_text(json.dumps({
+                        "event": "unauthorized_action",
+                        "message": "Privilege violation: Admin configuration rules rejected."
+                    }))
+                    continue
+                
+                if not room.game_started:
+                    room.rule_type = payload.get("rule_type", room.rule_type)
+                    room.card_type = payload.get("card_type", room.card_type)
+                    await room.broadcast({
+                        "event": "room_rules_updated",
+                        "rule_type": room.rule_type,
+                        "card_type": room.card_type,
+                        "message": f"Global configurations adjusted to {room.rule_type} ({room.card_type})"
+                    })
+                    
+            elif action == "start_admin_match":
+                if player.is_admin and not room.game_started:
+                    room.loop_task = asyncio.create_task(room.start_game_loop())
+
             elif action == "claim_bingo" and not room.game_over:
-                if room.verify_bingo(player):
+                if room.verify_bingo(player.card):
                     room.game_over = True
-                    await room.broadcast({"event": "game_over", "winner": username, "winning_card": player.card})
+                    await room.broadcast({
+                        "event": "game_over",
+                        "winner": username,
+                        "winning_card": player.card
+                    })
                 else:
-                    await websocket.send_text(json.dumps({"event": "invalid_claim", "message": "Fraudulent claim blocked! Board state mismatch."}))
+                    await websocket.send_text(json.dumps({
+                        "event": "invalid_claim",
+                        "message": "Your board matrix does not fulfill winning constraints."
+                    }))
             
             elif action == "send_message":
                 msg_text = payload.get("message", "").strip()
                 if msg_text:
-                    await room.broadcast({"event": "chat_message", "sender": username, "message": msg_text})
+                    await room.broadcast({
+                        "event": "chat_message",
+                        "sender": username,
+                        "message": msg_text
+                    })
                     
     except WebSocketDisconnect:
-        player.is_active = False
-        await room.broadcast_user_list()
-        
-        # Soft disconnect cleanup sequence
-        await asyncio.sleep(30.0)
-        if not any(p.is_active for p in room.players.values()):
-            if room.loop_task:
-                room.loop_task.cancel()
-            room.game_started = False
-            room.game_over = False
-            room.drawn_numbers.clear()
-            room.available_numbers = list(range(1, 76))
-            random.shuffle(room.available_numbers)
+        if username in room.players:
+            del room.players[username]
+        await room.broadcast({
+            "event": "player_left",
+            "username": username,
+            "total_players": len(room.players)
+        })
+        if not room.players and room.loop_task:
+            room.loop_task.cancel()
+            rooms.pop(room_id, None)
