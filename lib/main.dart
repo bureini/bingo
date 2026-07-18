@@ -13,7 +13,7 @@ class BingoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Multiplayer Secure Bingo',
+      title: 'Multiplayer Bingo',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
@@ -24,7 +24,6 @@ class BingoApp extends StatelessWidget {
   }
 }
 
-// --- MAIN ENTRANCE LOBBY WITH ROLE INTERCEPTORS ---
 class BingoJoinLobbyPage extends StatefulWidget {
   const BingoJoinLobbyPage({super.key});
 
@@ -89,7 +88,7 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Admin Sign-In Refused: Cryptographic token authentication failed.")),
+          const SnackBar(content: Text("Admin Authentication Refused: Invalid Credentials.")),
         );
       }
     } else {
@@ -138,13 +137,13 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                     TextFormField(
                       controller: _nameController,
                       decoration: const InputDecoration(labelText: 'Username', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person)),
-                      validator: (val) => (val == null || val.trim().isEmpty) ? 'Enter a username' : null,
+                      validator: (val) => (val == null || val.trim().isEmpty) ? 'Please enter a name' : null,
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _roomController,
                       decoration: const InputDecoration(labelText: 'Room Code', border: OutlineInputBorder(), prefixIcon: Icon(Icons.meeting_room)),
-                      validator: (val) => (val == null || val.trim().isEmpty) ? 'Enter a room code' : null,
+                      validator: (val) => (val == null || val.trim().isEmpty) ? 'Please enter a room code' : null,
                     ),
                     if (_isSigningInAsAdmin) ...[
                       const SizedBox(height: 16),
@@ -178,7 +177,7 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                       ),
                       child: _isLoading 
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : Text(_isSigningInAsAdmin ? 'Login & Command Room' : 'Connect to Server', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        : Text(_isSigningInAsAdmin ? 'Login & Open Control Console' : 'Connect to Server', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),
@@ -191,7 +190,6 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
   }
 }
 
-// --- DEDICATED ADMIN CONTROL TOWER PANEL ---
 class AdminDashboardPage extends StatefulWidget {
   final String username;
   final String adminToken;
@@ -232,7 +230,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       }));
       setState(() => _isConnected = true);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Room $room rules configured successfully.'), backgroundColor: Colors.green[800]),
+        SnackBar(content: Text('Room $room game configurations applied.'), backgroundColor: Colors.green[800]),
       );
     } catch (e) {
       setState(() => _isConnected = false);
@@ -243,7 +241,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     if (_socket == null || !_isConnected) return;
     _socket!.sink.add(jsonEncode({'action': 'start_admin_match'}));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Match initiated! Number extraction engine active.'), backgroundColor: Colors.indigo),
+      const SnackBar(content: Text('Match live! Game extraction loops activated.'), backgroundColor: Colors.indigo),
     );
   }
 
@@ -257,7 +255,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Admin System Command Console'), backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+      appBar: AppBar(title: const Text('Admin Operations Management Tower'), backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
       body: Center(
         child: Container(
           constraints: const BoxConstraints(maxWidth: 500),
@@ -316,7 +314,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   }
 }
 
-// --- CASUAL PLAYER UI ARENA ---
 class BingoGamePage extends StatefulWidget {
   final String roomId;
   final String username;
