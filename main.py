@@ -1,8 +1,11 @@
 import asyncio
 import json
 import random
+import smtplib
+from email.mime.text import MIMEText
 from typing import Dict, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
+import os
 
 app = FastAPI(title="Authoritative Regulated Bingo Engine")
 
@@ -14,20 +17,45 @@ BINGO_RANGES = {
     'O': (61, 75)
 }
 
-# Targeted Admin Notification Destination
+# Administrative Parameters
 ADMIN_EMAIL = "bureiniuarai@gmail.com"
 
-async def send_async_entry_notification(username: str, room_id: str):
+def send_sync_email(username: str, room_id: str):
     """
-    Asynchronously fires an alert to the administrator when a user enters the lobby.
-    Replace the print block below with an active SMTP/API client (e.g., aiosmtplib or SendGrid).
+    Establishes an authentic SMTP handshake to send real emails.
+    Utilizes secure environment parameters injected at the hosting level.
     """
+    # Retrieve transmission credentials from environment configurations
+    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    sender_email = os.environ.get("SENDER_EMAIL")
+    sender_password = os.environ.get("SENDER_PASSWORD") # App Password if using Gmail
+
+    # Prevent execution if structural environmental authentication params are missing
+    if not sender_email or not sender_password:
+        print("[MAIL ERROR] Missing credentials. Please configure SENDER_EMAIL and SENDER_PASSWORD variables on Render.")
+        return
+
+    # Construct the message container structure
+    msg = MIMEText(f"Hello Administrator,\n\nA user named '{username}' has entered live Bingo room '{room_id}'.\n\nRegards,\nBingo Automated Engine")
+    msg["Subject"] = f"🔔 Bingo Notification: {username} Entered {room_id}"
+    msg["From"] = sender_email
+    msg["To"] = ADMIN_EMAIL
+
     try:
-        # Simulated async network delay for an email API request dispatch
-        await asyncio.sleep(0.1)
-        print(f"[MAIL SYSTEM] Notification sent to {ADMIN_EMAIL}: User '{username}' successfully entered '{room_id}'.")
+        # Connect, upgrade to TLS encryption, authenticate, and fire transmission payload
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, [ADMIN_EMAIL], msg.as_string())
+        print(f"[MAIL SUCCESS] Real notification dispatched successfully to {ADMIN_EMAIL}")
     except Exception as e:
-        print(f"[MAIL ERROR] Failed sending entry alert: {e}")
+        print(f"[MAIL ERROR] Failed transmission handshake delivery: {e}")
+
+async def send_async_entry_notification(username: str, room_id: str):
+    """Offloads the network-bound SMTP logic to a parallel processing pool thread context."""
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, send_sync_email, username, room_id)
 
 class Player:
     def __init__(self, username: str, websocket: WebSocket):
@@ -128,15 +156,13 @@ rooms: Dict[str, BingoRoom] = {
 
 @app.get("/")
 def health_check():
-    """General status endpoint serving as a foundational admin data overview panel."""
     return {
         "status": "healthy",
         "active_rooms": {
             r_id: {
                 "active_players": r.get_active_usernames(),
                 "total_count": len(r.get_active_usernames()),
-                "game_started": r.game_started,
-                "numbers_drawn_count": len(r.drawn_numbers)
+                "game_started": r.game_started
             } for r_id, r in rooms.items()
         }
     }
@@ -190,7 +216,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
         "game_started": room.game_started
     }))
     
-    # Trigger Admin Email Alert via Non-blocking Background Executor if a new user joins
     if is_new_player:
         background_tasks.add_task(send_async_entry_notification, username, room_id)
     
