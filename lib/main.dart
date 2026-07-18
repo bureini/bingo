@@ -12,7 +12,7 @@ class BingoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Authoritative Bingo Arena',
+      title: 'Restricted Arena Bingo',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
@@ -31,7 +31,7 @@ class BingoJoinLobbyPage extends StatefulWidget {
 }
 
 class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
-  final _roomController = TextEditingController(text: "ROOM101");
+  final _roomController = TextEditingController(text: "ROOM100");
   final _nameController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
@@ -42,17 +42,67 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
     super.dispose();
   }
 
-  void _navigateToRoom() {
-    if (_formKey.currentState!.validate()) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => BingoGamePage(
-            roomId: _roomController.text.trim().toUpperCase(),
-            username: _nameController.text.trim(),
+  void _showGuidelinePopup(String message, {bool isError = false}) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline : Icons.info_outline, 
+                color: isError ? Colors.red : Colors.indigo
+              ),
+              const SizedBox(width: 10),
+              Text(isError ? 'Access Error' : 'Room Rules Capacity'),
+            ],
           ),
-        ),
+          content: Text(
+            message,
+            style: const TextStyle(fontSize: 15, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Understood'),
+            )
+          ],
+        );
+      },
+    );
+  }
+
+  void _validateAndEnterRoom() {
+    final selectedRoom = _roomController.text.trim().toUpperCase();
+    
+    if (selectedRoom != "ROOM100" && selectedRoom != "ROOM101") {
+      _showGuidelinePopup(
+        "Invalid Target Code Entry!\n\nThe server restricts play exclusively to ROOM100 or ROOM101.", 
+        isError: true
       );
+      return;
+    }
+
+    if (_formKey.currentState!.validate()) {
+      _showGuidelinePopup(
+        "Connecting to $selectedRoom...\n\nPlease Note: Total concurrent room participants must be between 1 - 80 maximum.",
+        isError: false
+      );
+      
+      Future.delayed(const Duration(milliseconds: 1800), () {
+        if (!mounted) return;
+        Navigator.of(context).pop(); 
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BingoGamePage(
+              roomId: selectedRoom,
+              username: _nameController.text.trim(),
+            ),
+          ),
+        );
+      });
     }
   }
 
@@ -74,10 +124,10 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.sports_esports, size: 64, color: Colors.indigo),
+                    const Icon(Icons.casino, size: 64, color: Colors.indigo),
                     const SizedBox(height: 16),
                     const Text(
-                      'Authoritative Bingo Engine',
+                      'Regulated Bingo Arena',
                       style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 24),
@@ -94,22 +144,22 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                     TextFormField(
                       controller: _roomController,
                       decoration: const InputDecoration(
-                        labelText: 'Room Code',
+                        labelText: 'Room Code (ROOM100 / ROOM101)',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.meeting_room),
                       ),
-                      validator: (val) => (val == null || val.trim().isEmpty) ? 'Please enter a room code' : null,
+                      validator: (val) => (val == null || val.trim().isEmpty) ? 'Enter code' : null,
                     ),
                     const SizedBox(height: 24),
                     ElevatedButton(
-                      onPressed: _navigateToRoom,
+                      onPressed: _validateAndEnterRoom,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.indigo,
                         foregroundColor: Colors.white,
                         minimumSize: const Size(double.infinity, 50),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      child: const Text('Connect & Recover State', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      child: const Text('Enter Match Lobby', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),
@@ -138,6 +188,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
   
   WebSocketChannel? _channel;
   final List<int> _drawnNumbers = []; 
+  final List<String> _activeRoomUsers = []; 
   int? _currentDrawnNumber;
   bool _isConnected = false;
   bool _gameStarted = false;
@@ -194,10 +245,10 @@ class _BingoGamePageState extends State<BingoGamePage> {
                 });
                 break;
 
-              case 'player_joined':
-              case 'player_left':
+              case 'room_users_update':
                 setState(() {
-                  _gameStatusMessage = "Lobby: ${data['total_players']} Active Player(s). Waiting for game start...";
+                  _activeRoomUsers.clear();
+                  _activeRoomUsers.addAll(List<String>.from(data['users']));
                 });
                 break;
 
@@ -310,7 +361,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isConnected ? 'Bingo Arena 🟢' : 'Disconnected 🔴'),
+        title: Text(_isConnected ? '${widget.roomId} 🟢' : 'Disconnected 🔴'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         centerTitle: true,
@@ -419,6 +470,49 @@ class _BingoGamePageState extends State<BingoGamePage> {
               style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w500),
             ),
           ),
+          
+          Container(
+            height: 44,
+            width: double.infinity,
+            color: Colors.indigo[50],
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              itemCount: _activeRoomUsers.length,
+              itemBuilder: (context, index) {
+                final user = _activeRoomUsers[index];
+                final isCurrent = user == widget.username;
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isCurrent ? Colors.indigo : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.indigo.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        user,
+                        style: TextStyle(
+                          fontSize: 12, 
+                          fontWeight: FontWeight.bold,
+                          color: isCurrent ? Colors.white : Colors.indigo[900]
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          
           Expanded(
             child: SingleChildScrollView(
               physics: const ClampingScrollPhysics(),
