@@ -10,7 +10,6 @@ import jwt
 
 app = FastAPI(title="Authoritative Secure Bingo Backend")
 
-# Security Configurations
 JWT_SECRET = os.getenv("JWT_SECRET", "YOUR_SUPER_SECRET_SECURITY_KEY")
 JWT_ALGORITHM = "HS256"
 ADMIN_PASSWORD = os.getenv("BINGO_ADMIN_PASSWORD", "SuperSecureAdminPassword123")
@@ -27,7 +26,7 @@ def create_admin_token(username: str) -> str:
     payload = {
         "sub": username,
         "role": "admin",
-        "exp": time.time() + 86400  # Valid for 24 Hours
+        "exp": time.time() + 86400
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
@@ -44,11 +43,8 @@ class Player:
         self.card = self.generate_card()
 
     def generate_card(self) -> List[List[int]]:
-        """Generates either a 5x5 (classic) or a 3x3 (speed) Bingo matrix safely."""
         dim = 5 if self.card_type == "classic" else 3
         columns = {}
-        
-        # Select subsets depending on grid layout size constraints
         letters = ['B', 'I', 'N', 'G', 'O'] if dim == 5 else ['B', 'N', 'O']
         for letter in letters:
             low, high = BINGO_RANGES[letter]
@@ -58,7 +54,6 @@ class Player:
         for row_idx in range(dim):
             row = []
             for col_idx, letter in enumerate(letters):
-                # Free space handling centered on standard 5x5 rules
                 if dim == 5 and row_idx == 2 and col_idx == 2:
                     row.append(0)
                 else:
@@ -76,10 +71,8 @@ class BingoRoom:
         self.game_started = False
         self.game_over = False
         self.loop_task: Optional[asyncio.Task] = None
-        
-        # Configuration parameters customizable only by an authenticated admin
-        self.rule_type = "standard"  # standard, blackout, corners
-        self.card_type = "classic"   # classic (5x5), speed (3x3)
+        self.rule_type = "standard"  
+        self.card_type = "classic"   
 
     async def broadcast(self, message: dict):
         payload = json.dumps(message)
@@ -97,7 +90,7 @@ class BingoRoom:
         self.game_started = True
         await self.broadcast({
             "event": "game_started", 
-            "message": f"Game Live! Target rule: {self.rule_type.upper()} ({self.card_type})"
+            "message": f"Game Live! Mode: {self.rule_type.upper()} ({self.card_type})"
         })
         
         while self.available_numbers and not self.game_over:
@@ -123,7 +116,6 @@ class BingoRoom:
         if self.rule_type == "corners":
             return marked[0][0] and marked[0][dim-1] and marked[dim-1][0] and marked[dim-1][dim-1]
             
-        # Standard rules loop evaluation (Row, Column, Diagonals)
         if any(all(row) for row in marked): return True
         if any(all(marked[r][c] for r in range(dim)) for c in range(dim)): return True
         if all(marked[i][i] for i in range(dim)) or all(marked[i][dim - 1 - i] for i in range(dim)): return True
@@ -133,12 +125,12 @@ rooms: Dict[str, BingoRoom] = {}
 
 @app.get("/")
 def health_check():
-    return {"status": "healthy", "game": "Bingo Engine Security Layer Active"}
+    return {"status": "healthy", "game": "Bingo Security Layer Active"}
 
 @app.post("/api/admin/login")
 def admin_login(credentials: AdminLoginRequest):
     if credentials.password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin password.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin credentials.")
     token = create_admin_token(credentials.username)
     return {"access_token": token, "token_type": "bearer", "username": credentials.username}
 
@@ -190,7 +182,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
                 if not player.is_admin:
                     await websocket.send_text(json.dumps({
                         "event": "unauthorized_action",
-                        "message": "Privilege violation: Admin configuration rules rejected."
+                        "message": "Admin authorization verified token check failed."
                     }))
                     continue
                 
@@ -201,7 +193,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
                         "event": "room_rules_updated",
                         "rule_type": room.rule_type,
                         "card_type": room.card_type,
-                        "message": f"Global configurations adjusted to {room.rule_type} ({room.card_type})"
+                        "message": f"Rules configuration updated to {room.rule_type} ({room.card_type})"
                     })
                     
             elif action == "start_admin_match":
@@ -219,7 +211,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
                 else:
                     await websocket.send_text(json.dumps({
                         "event": "invalid_claim",
-                        "message": "Your board matrix does not fulfill winning constraints."
+                        "message": "Win verification failed: Criteria unmet."
                     }))
             
             elif action == "send_message":
