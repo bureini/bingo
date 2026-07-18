@@ -174,7 +174,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
                   _gameStarted = data['game_started'] ?? false;
                   _gameStatusMessage = "Connected to Room: ${data['room_id']}";
                   
-                  // Restore authoritative server daub selections upon re-entry
                   if (data['daubed_grid'] != null) {
                     for (int r = 0; r < 5; r++) {
                       for (int c = 0; c < 5; c++) {
@@ -185,7 +184,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
                     _daubedStates[2][2] = true;
                   }
 
-                  // Backfill full historical drawn sequence
                   if (data['history'] != null) {
                     _drawnNumbers.clear();
                     _drawnNumbers.addAll(List<int>.from(data['history']));
@@ -279,11 +277,10 @@ class _BingoGamePageState extends State<BingoGamePage> {
   }
 
   void _toggleDaubCell(int row, int col, bool currentStatus) {
-    if (row == 2 && col == 2) return; // Free space is structurally immutable
+    if (row == 2 && col == 2) return;
     
     setState(() => _daubedStates[row][col] = !currentStatus);
 
-    // Securely push interaction to authoritative engine to mitigate spoofing vectors
     if (_channel != null && _isConnected) {
       _channel!.sink.add(jsonEncode({
         'action': 'toggle_daub',
