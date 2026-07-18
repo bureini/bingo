@@ -12,7 +12,7 @@ class BingoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Multiplayer Bingo',
+      title: 'Authoritative Bingo Arena',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
@@ -23,7 +23,6 @@ class BingoApp extends StatelessWidget {
   }
 }
 
-// --- DYNAMIC LOBBY INTERFACE ---
 class BingoJoinLobbyPage extends StatefulWidget {
   const BingoJoinLobbyPage({super.key});
 
@@ -78,7 +77,7 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                     const Icon(Icons.sports_esports, size: 64, color: Colors.indigo),
                     const SizedBox(height: 16),
                     const Text(
-                      'Join a Bingo Arena',
+                      'Authoritative Bingo Engine',
                       style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 24),
@@ -110,7 +109,7 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                         minimumSize: const Size(double.infinity, 50),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      child: const Text('Connect to Server', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      child: const Text('Connect & Recover State', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),
@@ -123,7 +122,6 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
   }
 }
 
-// --- GAME ROOM CLIENT WITH COLLAPSIBLE DRAWER CHAT ---
 class BingoGamePage extends StatefulWidget {
   final String roomId;
   final String username;
@@ -145,7 +143,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
   bool _gameStarted = false;
   String _gameStatusMessage = "Connecting to game server...";
 
-  // Chat Log Infrastructure States
   final List<Map<String, String>> _chatMessages = [];
   final _chatTextController = TextEditingController();
   final _chatScrollController = ScrollController();
@@ -171,16 +168,38 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
             switch (event) {
               case 'card_assigned':
+              case 'player_reconnected':
                 setState(() {
                   _bingoCardNumbers = data['card'];
-                  _daubedStates[2][2] = true; 
+                  _gameStarted = data['game_started'] ?? false;
                   _gameStatusMessage = "Connected to Room: ${data['room_id']}";
+                  
+                  // Restore authoritative server daub selections upon re-entry
+                  if (data['daubed_grid'] != null) {
+                    for (int r = 0; r < 5; r++) {
+                      for (int c = 0; c < 5; c++) {
+                        _daubedStates[r][c] = data['daubed_grid'][r][c];
+                      }
+                    }
+                  } else {
+                    _daubedStates[2][2] = true;
+                  }
+
+                  // Backfill full historical drawn sequence
+                  if (data['history'] != null) {
+                    _drawnNumbers.clear();
+                    _drawnNumbers.addAll(List<int>.from(data['history']));
+                    if (_drawnNumbers.isNotEmpty) {
+                      _currentDrawnNumber = _drawnNumbers.last;
+                    }
+                  }
                 });
                 break;
 
               case 'player_joined':
+              case 'player_left':
                 setState(() {
-                  _gameStatusMessage = "Lobby: ${data['total_players']} Player(s) inside. Waiting for game start...";
+                  _gameStatusMessage = "Lobby: ${data['total_players']} Active Player(s). Waiting for game start...";
                 });
                 break;
 
@@ -207,7 +226,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
                     'message': data['message'],
                   });
                 });
-                // Ensure chat logs smoothly slide downwards as new data items arrive
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (_chatScrollController.hasClients) {
                     _chatScrollController.animateTo(
@@ -224,7 +242,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                   _gameStarted = false;
                   _gameStatusMessage = data['winner'] != null 
                       ? "🏆 Winner: ${data['winner']}!" 
-                      : "Game Over: ${data['reason']}";
+                      : "Game Over";
                 });
                 break;
 
@@ -232,7 +250,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(data['message']),
-                    backgroundColor: Colors.orange[800],
+                    backgroundColor: Colors.red[800],
                   ),
                 );
                 break;
@@ -260,6 +278,21 @@ class _BingoGamePageState extends State<BingoGamePage> {
     _chatTextController.clear();
   }
 
+  void _toggleDaubCell(int row, int col, bool currentStatus) {
+    if (row == 2 && col == 2) return; // Free space is structurally immutable
+    
+    setState(() => _daubedStates[row][col] = !currentStatus);
+
+    // Securely push interaction to authoritative engine to mitigate spoofing vectors
+    if (_channel != null && _isConnected) {
+      _channel!.sink.add(jsonEncode({
+        'action': 'toggle_daub',
+        'row': row,
+        'col': col,
+      }));
+    }
+  }
+
   void _claimBingo() {
     if (_channel == null || !_isConnected) return;
     _channel!.sink.add(jsonEncode({'action': 'claim_bingo'}));
@@ -280,7 +313,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isConnected ? 'Bingo Arena 🎴' : 'Connecting... 📡'),
+        title: Text(_isConnected ? 'Bingo Arena 🟢' : 'Disconnected 🔴'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         centerTitle: true,
@@ -296,7 +329,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
           ),
         ],
       ),
-      // --- COLLAPSIBLE DRAWING DRAWER MECHANISM ---
       endDrawer: Drawer(
         width: MediaQuery.of(context).size.width * 0.85,
         child: Container(
@@ -474,10 +506,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                           bool isDaubed = _daubedStates[row][col];
 
                           return GestureDetector(
-                            onTap: () {
-                              if (row == 2 && col == 2) return;
-                              setState(() => _daubedStates[row][col] = !isDaubed);
-                            },
+                            onTap: () => _toggleDaubCell(row, col, isDaubed),
                             child: Container(
                               decoration: BoxDecoration(
                                 color: Colors.white,
