@@ -12,7 +12,7 @@ class BingoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'My Bingo 6-Card Arena',
+      title: 'My Bingo 6-Card Book',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
@@ -74,6 +74,7 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Admin Gateway: Long-press this controller icon for 2 seconds to launch the rules panel
                     GestureDetector(
                       onLongPress: () {
                         Navigator.push(
@@ -152,6 +153,13 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
     }
+  }
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _roomTargetController.dispose();
+    super.dispose();
   }
 
   @override
@@ -266,98 +274,93 @@ class _BingoGamePageState extends State<BingoGamePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[200],
+      backgroundColor: Colors.grey[300],
       appBar: AppBar(title: const Text('My Bingo Playroom'), backgroundColor: Colors.indigo, foregroundColor: Colors.white, centerTitle: true),
       body: Column(
         children: [
-          Container(width: double.infinity, color: Colors.indigo[900], padding: const EdgeInsets.all(6), child: Text(_gameStatusMessage, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 13))),
+          Container(width: double.infinity, color: Colors.indigo[900], padding: const EdgeInsets.all(4), child: Text(_gameStatusMessage, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 12))),
           
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
             child: Card(
               margin: EdgeInsets.zero,
               elevation: 1,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 16.0),
+                padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 12.0),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     Row(
                       children: [
-                        const Text('BALL: ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                        CircleAvatar(radius: 18, backgroundColor: Colors.amber[700], child: Text(_currentDrawnNumber != null ? '$_currentDrawnNumber' : '--', style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold))),
+                        const Text('BALL: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+                        CircleAvatar(radius: 14, backgroundColor: Colors.amber[700], child: Text(_currentDrawnNumber != null ? '$_currentDrawnNumber' : '--', style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold))),
                       ],
                     ),
-                    Text("Drawn Count: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))
+                    Text("Drawn: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))
                   ],
                 ),
               ),
             ),
           ),
           
-          // --- ZOOMABLE CANVAS AND COMPACT WRAPPER ---
+          // --- COMPACT, OVERFLOW-FREE ZOOMABLE CANVAS ---
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: InteractiveViewer(
-                minScale: 0.5,
-                maxScale: 2.5,
-                boundaryMargin: const EdgeInsets.all(20.0),
-                child: Center(
-                  child: Container(
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    child: GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(), // Handled by InteractiveViewer
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 1,
-                        crossAxisSpacing: 0,
-                        mainAxisSpacing: 6,
-                        childAspectRatio: 9 / 3.0,
-                      ),
-                      itemCount: 6,
-                      itemBuilder: (context, ticketIndex) {
-                        return Card(
-                          margin: EdgeInsets.zero,
-                          elevation: 2,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(4), 
-                            side: const BorderSide(color: Colors.indigo, width: 1.2)
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(3.0),
-                            child: Table(
-                              border: TableBorder.all(color: Colors.grey.shade300, width: 1.0),
-                              children: List.generate(3, (r) {
-                                return TableRow(
-                                  children: List.generate(9, (c) {
-                                    var cellVal = _ticketBookNumbers[ticketIndex][r][c];
-                                    String displayText = (cellVal == 0) ? "" : cellVal.toString();
-                                    bool isDaubed = _bookDaubedStates[ticketIndex][r][c];
-                                    
-                                    return GestureDetector(
-                                      onTap: () {
-                                        if (displayText.isNotEmpty) {
-                                          setState(() => _bookDaubedStates[ticketIndex][r][c] = !isDaubed);
-                                        }
-                                      },
-                                      child: Container(
-                                        height: 30,
-                                        color: displayText.isEmpty ? Colors.grey.shade100 : Colors.white,
-                                        alignment: Alignment.center,
-                                        child: Stack(
+              padding: const EdgeInsets.all(4.0),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Distribute available vertical spacing across all 6 grids evenly to completely eliminate scrolling
+                  double dynamicCellHeight = (constraints.maxHeight - 30) / 18;
+                  if (dynamicCellHeight < 18) dynamicCellHeight = 18; // Setup safety baseline
+
+                  return InteractiveViewer(
+                    minScale: 0.3,
+                    maxScale: 2.5,
+                    child: Center(
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 500),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(6, (ticketIndex) {
+                            return Container(
+                              margin: const EdgeInsets.symmetric(vertical: 2.0),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border.all(color: Colors.indigo.shade400, width: 1.0),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              child: Table(
+                                border: TableBorder.all(color: Colors.grey.shade300, width: 0.8),
+                                children: List.generate(3, (r) {
+                                  return TableRow(
+                                    children: List.generate(9, (c) {
+                                      var cellVal = _ticketBookNumbers[ticketIndex][r][c];
+                                      String displayText = (cellVal == 0) ? "" : cellVal.toString();
+                                      bool isDaubed = _bookDaubedStates[ticketIndex][r][c];
+                                      
+                                      return GestureDetector(
+                                        onTap: () {
+                                          if (displayText.isNotEmpty) {
+                                            setState(() => _bookDaubedStates[ticketIndex][r][c] = !isDaubed);
+                                          }
+                                        },
+                                        child: Container(
+                                          height: dynamicCellHeight,
+                                          color: displayText.isEmpty ? Colors.grey.shade100 : Colors.white,
                                           alignment: Alignment.center,
-                                          children: [
-                                            Text(displayText, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                                            if (isDaubed && displayText.isNotEmpty)
-                                              Container(
-                                                decoration: BoxDecoration(
-                                                  shape: BoxShape.circle,
-                                                  color: Colors.blue.withOpacity(0.4),
-                                                  border: Border.all(color: Colors.blueAccent, width: 1)
+                                          child: Stack(
+                                            alignment: Alignment.center,
+                                            children: [
+                                              Text(displayText, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
+                                              if (isDaubed && displayText.isNotEmpty)
+                                                Container(
+                                                  decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    color: Colors.blue.withOpacity(0.4),
+                                                    border: Border.all(color: Colors.blueAccent, width: 0.8)
+                                                  ),
+                                                  margin: const EdgeInsets.all(1),
                                                 ),
-                                                margin: const EdgeInsets.all(1),
-                                              ),
                                           ],
                                         ),
                                       ),
@@ -366,22 +369,22 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                 );
                               }),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        }),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),
           
           Container(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
             child: ElevatedButton(
               onPressed: () => _channel?.sink.add(jsonEncode({'action': 'claim_bingo'})),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green[600], foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 44), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-              child: const Text("CLAIM BINGO!", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green[600], foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 40), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))),
+              child: const Text("CLAIM BINGO!", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
             ),
           )
         ],
