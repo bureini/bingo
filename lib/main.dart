@@ -74,7 +74,6 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Admin Gateway: Long-press this controller icon for 2 seconds to launch the rules panel
                     GestureDetector(
                       onLongPress: () {
                         Navigator.push(
@@ -303,15 +302,15 @@ class _BingoGamePageState extends State<BingoGamePage> {
             ),
           ),
           
-          // --- COMPACT, OVERFLOW-FREE ZOOMABLE CANVAS ---
+          // --- COMPACT, SCROLL-FREE ZOOMABLE INTERACTIVE CANVAS ---
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(4.0),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  // Distribute available vertical spacing across all 6 grids evenly to completely eliminate scrolling
-                  double dynamicCellHeight = (constraints.maxHeight - 30) / 18;
-                  if (dynamicCellHeight < 18) dynamicCellHeight = 18; // Setup safety baseline
+                  // Dynamically allocate space across all 18 grid rows to prevent layout text clipping
+                  double dynamicCellHeight = (constraints.maxHeight - 24) / 18;
+                  if (dynamicCellHeight < 16) dynamicCellHeight = 16; 
 
                   return InteractiveViewer(
                     minScale: 0.3,
@@ -361,19 +360,20 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                                   ),
                                                   margin: const EdgeInsets.all(1),
                                                 ),
-                                          ],
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    );
-                                  }),
-                                );
-                              }),
-                            ),
-                          );
-                        }),
+                                      );
+                                    }),
+                                  );
+                                }),
+                              ),
+                            );
+                          }),
+                        ),
                       ),
                     ),
-                  );
+                  ); // Properly matched parenthesis token boundary closure applied successfully here[cite: 2]
                 },
               ),
             ),
