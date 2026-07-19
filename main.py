@@ -4,8 +4,9 @@ import random
 from typing import Dict, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-app = FastAPI(title="Authoritative Multi-Layout Bingo Backend")
+app = FastAPI(title="Authoritative Bingo Backend")
 
+# Standard 75-Ball ranges
 BINGO_RANGES = {
     'B': (1, 15),
     'I': (16, 30),
@@ -22,22 +23,23 @@ class Player:
         self.card = self.generate_card()
 
     def generate_card(self) -> List[List[int]]:
-        """Generates valid 75-Ball or 90-Ball matrix patterns strictly based on room setups."""
+        """Generates either a 5x5 Grid or a 3x9 UK/Australian 90-ball ticket pattern."""
         if "90-Ball" in self.card_type:
-            # Generate 90-ball ticket: 3 rows by 9 columns[cite: 1]
-            # Standard distribution ranges per column: 1-9, 10-19 ... 80-90
+            # 1. Initialize an empty 3x9 grid matrix
             ticket = [[0 for _ in range(9)] for _ in range(3)]
+            
+            # 2. Populate columns matching standard mathematical ranges (1-9, 10-19, ..., 80-90)
             for col in range(9):
                 low = 1 if col == 0 else col * 10
                 high = 9 if col == 0 else (89 if col == 7 else 90)
                 
-                # Sample 3 ascending ordered values unique to the column range
+                # Pick 3 unique numbers for the column and sort them in ascending order
                 column_digits = random.sample(range(low, high + 1), 3)
                 column_digits.sort()
                 for row in range(3):
                     ticket[row][col] = column_digits[row]
             
-            # Leave exactly 5 numbers per row by blanking out 4 cells randomly[cite: 1]
+            # 3. Secure exactly 5 numbers per row by replacing 4 random spots with 0 (blank cell)
             for row in range(3):
                 clear_indices = random.sample(range(9), 4)
                 for idx in clear_indices:
@@ -45,7 +47,7 @@ class Player:
             return ticket
             
         else:
-            # Standard 75-ball 5x5 card pattern layout logic[cite: 4]
+            # Fallback configuration: Standard 5x5 card pattern layout logic
             columns = {}
             for letter, (low, high) in BINGO_RANGES.items():
                 columns[letter] = random.sample(range(low, high + 1), 5)
@@ -55,7 +57,7 @@ class Player:
                 row = []
                 for col_idx, letter in enumerate(['B', 'I', 'N', 'G', 'O']):
                     if row_idx == 2 and col_idx == 2:
-                        row.append(0)  # Free Space indicator[cite: 4]
+                        row.append(0)  # Center FREE space represented as 0
                     else:
                         row.append(columns[letter][row_idx])
                 card.append(row)
@@ -91,12 +93,12 @@ class BingoRoom:
         self.card_type = card_type
         self.draw_interval = float(draw_interval)
         
-        # Reset matching scopes depending on geometric selection limits
+        # Adjust total number pool ranges based on selected game rules
         max_pool = 91 if "90-Ball" in card_type else 76
         self.available_numbers = list(range(1, max_pool))
         random.shuffle(self.available_numbers)
         
-        # Regenerate game boards for all connected players to avoid format mismatches
+        # Regenerate appropriate cards for players already waiting in the lobby
         for player in self.players.values():
             player.card_type = card_type
             player.card = player.generate_card()
@@ -127,10 +129,10 @@ class BingoRoom:
             })
 
     def verify_bingo(self, player_card: List[List[int]]) -> bool:
-        """Authoritative pattern validation to fully mitigate game client tampering."""
+        """Server-side win verification framework to prevent client-side tampering."""
         drawn_set = set(self.drawn_numbers) | {0}
         
-        # 90-Ball ticket winning criteria check (Full House verification rule)[cite: 1]
+        # 90-Ball Validation: Check for a "Full House" (all non-zero card cells drawn)
         if len(player_card[0]) == 9:
             for r in range(3):
                 for c in range(9):
@@ -139,7 +141,7 @@ class BingoRoom:
                         return False
             return True
             
-        # 75-Ball multi-line column cross matching system check[cite: 4]
+        # 75-Ball Validation: Check for complete row, column, or diagonal lines
         else:
             marked = [[player_card[r][c] in drawn_set for c in range(5)] for r in range(5)]
             if any(all(row) for row in marked): return True
@@ -160,7 +162,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
         rooms[room_id] = BingoRoom(room_id)
     room = rooms[room_id]
     
-    # Handle the admin connection separately from normal players
     is_admin = (username == "SystemAdmin")
     
     if not is_admin:
@@ -189,7 +190,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
             payload = json.loads(data)
             action = payload.get("action")
             
-            # Explicit Protected Payload Router Check
+            # Protected Endpoint: Parses rule updates sent by verified admins
             if action == "update_room_rules":
                 if payload.get("admin_secret") == "BingoAdmin2026":
                     await room.update_room_rules(
@@ -198,7 +199,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                     )
                     await room.broadcast({
                         "event": "room_rules_changed",
-                        "message": f"System Alert: Admin updated card rules to {room.card_type}."
+                        "message": f"System Override: Rules updated to {room.card_type}."
                     })
             
             elif action == "claim_bingo" and not room.game_over and not is_admin:
