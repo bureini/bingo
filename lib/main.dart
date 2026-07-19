@@ -116,7 +116,7 @@ class BingoGamePage extends StatefulWidget {
 }
 
 class _BingoGamePageState extends State<BingoGamePage> {
-  // Contains structures tracking daubs across 6 separate 3x9 card tickets[cite: 1]
+  // Setup multidimensional arrays to map daubs securely across all 6 tickets[cite: 1]
   List<List<List<bool>>> _bookDaubedStates = List.generate(6, (_) => List.generate(3, (_) => List.filled(9, false)));
   List<List<List<dynamic>>> _ticketBookNumbers = List.generate(6, (_) => List.generate(3, (_) => List.filled(9, 0)));
   
@@ -201,14 +201,14 @@ class _BingoGamePageState extends State<BingoGamePage> {
             ),
           ),
           
-          // Vertically scrollable strip displaying all 6 tickets together
+          // Vertically scrollable strip showing all 6 ticket structures sequentially[cite: 1]
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               itemCount: 6,
               itemBuilder: (context, ticketIndex) {
                 return Container(
-                  margin: const EdgeInsets.bottom(24.0),
+                  margin: const EdgeInsets.only(bottom: 24.0), // Fixed formatting crash edge-case here
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -250,7 +250,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                             if (isDaubed && displayText.isNotEmpty)
                                               Container(
                                                 decoration: BoxDecoration(
-                                                  shape: BoxShape.shapeCircle,
+                                                  shape: BoxShape.circle, // Fixed formatting crash enum here
                                                   color: Colors.blue.withOpacity(0.45),
                                                   border: Border.all(color: Colors.blueAccent, width: 1)
                                                 ),
