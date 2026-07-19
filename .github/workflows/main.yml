@@ -71,4 +71,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./build/web
           publish_branch: gh-pages
-          force_orphan: true # Instantly fixes history alignment rejections by replacing the branch tracking log
+          force_orphan: true # Permanently fixes non-fast-forward push history conflicts
