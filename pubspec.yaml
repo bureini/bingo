@@ -1,5 +1,5 @@
 name: my_bingo
-description: "A secure, authoritative multi-layout multiplayer Bingo game platform."
+description: "My Bingo - A secure, authoritative 6-ticket multiplayer live game arena."
 publish_to: 'none'
 
 version: 1.0.0+1
