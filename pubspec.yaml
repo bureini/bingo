@@ -1,5 +1,5 @@
-name: my_automated_app
-description: "A secure online multi-format Bingo web client application."
+name: my_bingo
+description: "A secure, authoritative multi-layout multiplayer Bingo game platform."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -11,7 +11,6 @@ dependencies:
   flutter:
     sdk: flutter
   web_socket_channel: ^3.0.1
-  http: ^1.2.0
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
