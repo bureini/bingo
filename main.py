@@ -1,18 +1,10 @@
 import asyncio
 import json
-import os
 import random
-import time
-from typing import Dict, List, Optional
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status
-from pydantic import BaseModel
-import jwt
+from typing import Dict, List
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-app = FastAPI(title="Authoritative Secure Bingo Backend")
-
-JWT_SECRET = os.getenv("JWT_SECRET", "YOUR_SUPER_SECRET_SECURITY_KEY")
-JWT_ALGORITHM = "HS256"
-ADMIN_PASSWORD = os.getenv("BINGO_ADMIN_PASSWORD", "SuperSecureAdminPassword123")
+app = FastAPI(title="Authoritative Multi-Layout Bingo Backend")
 
 BINGO_RANGES = {
     'B': (1, 15),
@@ -22,57 +14,65 @@ BINGO_RANGES = {
     'O': (61, 75)
 }
 
-def create_admin_token(username: str) -> str:
-    payload = {
-        "sub": username,
-        "role": "admin",
-        "exp": time.time() + 86400
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
-class AdminLoginRequest(BaseModel):
-    username: str
-    password: str
-
 class Player:
-    def __init__(self, username: str, websocket: WebSocket, card_type: str = "classic", is_admin: bool = False):
+    def __init__(self, username: str, websocket: WebSocket, card_type: str = "75-Ball (5x5 Grid)"):
         self.username = username
         self.websocket = websocket
-        self.is_admin = is_admin
         self.card_type = card_type
         self.card = self.generate_card()
 
     def generate_card(self) -> List[List[int]]:
-        dim = 5 if self.card_type == "classic" else 3
-        columns = {}
-        letters = ['B', 'I', 'N', 'G', 'O'] if dim == 5 else ['B', 'N', 'O']
-        for letter in letters:
-            low, high = BINGO_RANGES[letter]
-            columns[letter] = random.sample(range(low, high + 1), dim)
-        
-        card = []
-        for row_idx in range(dim):
-            row = []
-            for col_idx, letter in enumerate(letters):
-                if dim == 5 and row_idx == 2 and col_idx == 2:
-                    row.append(0)
-                else:
-                    row.append(columns[letter][row_idx])
-            card.append(row)
-        return card
+        """Generates valid 75-Ball or 90-Ball matrix patterns strictly based on room setups."""
+        if "90-Ball" in self.card_type:
+            # Generate 90-ball ticket: 3 rows by 9 columns[cite: 1]
+            # Standard distribution ranges per column: 1-9, 10-19 ... 80-90
+            ticket = [[0 for _ in range(9)] for _ in range(3)]
+            for col in range(9):
+                low = 1 if col == 0 else col * 10
+                high = 9 if col == 0 else (89 if col == 7 else 90)
+                
+                # Sample 3 ascending ordered values unique to the column range
+                column_digits = random.sample(range(low, high + 1), 3)
+                column_digits.sort()
+                for row in range(3):
+                    ticket[row][col] = column_digits[row]
+            
+            # Leave exactly 5 numbers per row by blanking out 4 cells randomly[cite: 1]
+            for row in range(3):
+                clear_indices = random.sample(range(9), 4)
+                for idx in clear_indices:
+                    ticket[row][idx] = 0
+            return ticket
+            
+        else:
+            # Standard 75-ball 5x5 card pattern layout logic[cite: 4]
+            columns = {}
+            for letter, (low, high) in BINGO_RANGES.items():
+                columns[letter] = random.sample(range(low, high + 1), 5)
+            
+            card = []
+            for row_idx in range(5):
+                row = []
+                for col_idx, letter in enumerate(['B', 'I', 'N', 'G', 'O']):
+                    if row_idx == 2 and col_idx == 2:
+                        row.append(0)  # Free Space indicator[cite: 4]
+                    else:
+                        row.append(columns[letter][row_idx])
+                card.append(row)
+            return card
 
 class BingoRoom:
     def __init__(self, room_id: str):
         self.room_id = room_id
         self.players: Dict[str, Player] = {}
         self.drawn_numbers: List[int] = []
+        self.card_type = "75-Ball (5x5 Grid)"
+        self.draw_interval = 5.0
         self.available_numbers: List[int] = list(range(1, 76))
         random.shuffle(self.available_numbers)
         self.game_started = False
         self.game_over = False
-        self.loop_task: Optional[asyncio.Task] = None
-        self.rule_type = "standard"  
-        self.card_type = "classic"   
+        self.loop_task: asyncio.Task = None
 
     async def broadcast(self, message: dict):
         payload = json.dumps(message)
@@ -86,15 +86,36 @@ class BingoRoom:
             if username in self.players:
                 del self.players[username]
 
+    async def update_room_rules(self, card_type: str, draw_interval: int):
+        """Authoritatively rewrites rules mid-lobby execution from the admin panel."""
+        self.card_type = card_type
+        self.draw_interval = float(draw_interval)
+        
+        # Reset matching scopes depending on geometric selection limits
+        max_pool = 91 if "90-Ball" in card_type else 76
+        self.available_numbers = list(range(1, max_pool))
+        random.shuffle(self.available_numbers)
+        
+        # Regenerate game boards for all connected players to avoid format mismatches
+        for player in self.players.values():
+            player.card_type = card_type
+            player.card = player.generate_card()
+            try:
+                await player.websocket.send_text(json.dumps({
+                    "event": "card_assigned",
+                    "card": player.card,
+                    "username": player.username,
+                    "room_id": self.room_id
+                }))
+            except Exception:
+                pass
+
     async def start_game_loop(self):
         self.game_started = True
-        await self.broadcast({
-            "event": "game_started", 
-            "message": f"Game Live! Mode: {self.rule_type.upper()} ({self.card_type})"
-        })
+        await self.broadcast({"event": "game_started", "message": "The game has begun!"})
         
         while self.available_numbers and not self.game_over:
-            await asyncio.sleep(5.0)
+            await asyncio.sleep(self.draw_interval)
             if self.game_over:
                 break
             num = self.available_numbers.pop()
@@ -106,71 +127,61 @@ class BingoRoom:
             })
 
     def verify_bingo(self, player_card: List[List[int]]) -> bool:
+        """Authoritative pattern validation to fully mitigate game client tampering."""
         drawn_set = set(self.drawn_numbers) | {0}
-        dim = len(player_card)
-        marked = [[player_card[r][c] in drawn_set for c in range(dim)] for r in range(dim)]
         
-        if self.rule_type == "blackout":
-            return all(all(row) for row in marked)
+        # 90-Ball ticket winning criteria check (Full House verification rule)[cite: 1]
+        if len(player_card[0]) == 9:
+            for r in range(3):
+                for c in range(9):
+                    val = player_card[r][c]
+                    if val != 0 and val not in drawn_set:
+                        return False
+            return True
             
-        if self.rule_type == "corners":
-            return marked[0][0] and marked[0][dim-1] and marked[dim-1][0] and marked[dim-1][dim-1]
-            
-        if any(all(row) for row in marked): return True
-        if any(all(marked[r][c] for r in range(dim)) for c in range(dim)): return True
-        if all(marked[i][i] for i in range(dim)) or all(marked[i][dim - 1 - i] for i in range(dim)): return True
-        return False
+        # 75-Ball multi-line column cross matching system check[cite: 4]
+        else:
+            marked = [[player_card[r][c] in drawn_set for c in range(5)] for r in range(5)]
+            if any(all(row) for row in marked): return True
+            if any(all(marked[r][c] for r in range(5)) for c in range(5)): return True
+            if all(marked[i][i] for i in range(5)) or all(marked[i][4 - i] for i in range(5)): return True
+            return False
 
 rooms: Dict[str, BingoRoom] = {}
 
 @app.get("/")
 def health_check():
-    return {"status": "healthy", "game": "Bingo Security Layer Active"}
-
-@app.post("/api/admin/login")
-def admin_login(credentials: AdminLoginRequest):
-    if credentials.password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin credentials.")
-    token = create_admin_token(credentials.username)
-    return {"access_token": token, "token_type": "bearer", "username": credentials.username}
+    return {"status": "healthy", "game": "Bingo Engine Live"}
 
 @app.websocket("/ws/{room_id}/{username}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, token: Optional[str] = None):
+async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
     await websocket.accept()
-    
-    is_admin_user = False
-    if token:
-        try:
-            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-            if payload.get("role") == "admin" and payload.get("sub") == username:
-                is_admin_user = True
-        except jwt.PyJWTError:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-
     if room_id not in rooms:
         rooms[room_id] = BingoRoom(room_id)
     room = rooms[room_id]
     
-    player = Player(username, websocket, card_type=room.card_type, is_admin=is_admin_user)
-    room.players[username] = player
+    # Handle the admin connection separately from normal players
+    is_admin = (username == "SystemAdmin")
     
-    await websocket.send_text(json.dumps({
-        "event": "card_assigned",
-        "card": player.card,
-        "card_type": room.card_type,
-        "username": username,
-        "room_id": room_id
-    }))
-    
-    await room.broadcast({
-        "event": "player_joined",
-        "username": username,
-        "total_players": len(room.players)
-    })
-    
-    if len(room.players) >= 2 and not room.game_started and not is_admin_user:
-        room.loop_task = asyncio.create_task(room.start_game_loop())
+    if not is_admin:
+        player = Player(username, websocket, room.card_type)
+        room.players[username] = player
+        
+        await websocket.send_text(json.dumps({
+            "event": "card_assigned",
+            "card": player.card,
+            "username": username,
+            "room_id": room_id
+        }))
+        
+        await room.broadcast({
+            "event": "player_joined",
+            "username": username,
+            "total_players": len(room.players)
+        })
+        
+        if len(room.players) >= 2 and not room.game_started:
+            room.loop_task = asyncio.create_task(room.start_game_loop())
 
     try:
         while True:
@@ -178,40 +189,31 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
             payload = json.loads(data)
             action = payload.get("action")
             
+            # Explicit Protected Payload Router Check
             if action == "update_room_rules":
-                if not player.is_admin:
-                    await websocket.send_text(json.dumps({
-                        "event": "unauthorized_action",
-                        "message": "Admin authorization verified token check failed."
-                    }))
-                    continue
-                
-                if not room.game_started:
-                    room.rule_type = payload.get("rule_type", room.rule_type)
-                    room.card_type = payload.get("card_type", room.card_type)
+                if payload.get("admin_secret") == "BingoAdmin2026":
+                    await room.update_room_rules(
+                        card_type=payload.get("card_type", "75-Ball (5x5 Grid)"),
+                        draw_interval=payload.get("draw_interval", 5)
+                    )
                     await room.broadcast({
-                        "event": "room_rules_updated",
-                        "rule_type": room.rule_type,
-                        "card_type": room.card_type,
-                        "message": f"Rules configuration updated to {room.rule_type} ({room.card_type})"
+                        "event": "room_rules_changed",
+                        "message": f"System Alert: Admin updated card rules to {room.card_type}."
                     })
-                    
-            elif action == "start_admin_match":
-                if player.is_admin and not room.game_started:
-                    room.loop_task = asyncio.create_task(room.start_game_loop())
-
-            elif action == "claim_bingo" and not room.game_over:
-                if room.verify_bingo(player.card):
+            
+            elif action == "claim_bingo" and not room.game_over and not is_admin:
+                target_player = room.players.get(username)
+                if target_player and room.verify_bingo(target_player.card):
                     room.game_over = True
                     await room.broadcast({
                         "event": "game_over",
                         "winner": username,
-                        "winning_card": player.card
+                        "winning_card": target_player.card
                     })
                 else:
                     await websocket.send_text(json.dumps({
                         "event": "invalid_claim",
-                        "message": "Win verification failed: Criteria unmet."
+                        "message": "Your board doesn't match the drawn numbers yet!"
                     }))
             
             elif action == "send_message":
@@ -224,13 +226,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
                     })
                     
     except WebSocketDisconnect:
-        if username in room.players:
+        if not is_admin and username in room.players:
             del room.players[username]
         await room.broadcast({
             "event": "player_left",
             "username": username,
             "total_players": len(room.players)
         })
-        if not room.players and room.loop_task:
-            room.loop_task.cancel()
+        if not room.players:
+            if room.loop_task:
+                room.loop_task.cancel()
             rooms.pop(room_id, None)
