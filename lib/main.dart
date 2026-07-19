@@ -12,7 +12,7 @@ class BingoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'My Bingo 6-Card Book',
+      title: 'My Bingo 6-Card Arena',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
@@ -74,7 +74,6 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Admin Gateway Secret Hook (Long-press for 2 seconds)
                     GestureDetector(
                       onLongPress: () {
                         Navigator.push(
@@ -266,11 +265,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    // Adapt column layouts based on display width to avoid cluttering or vertical overflows
-    int crossAxisCount = screenWidth > 750 ? 2 : 1;
-    double childAspectRatio = screenWidth > 750 ? (9 / 3.4) : (9 / 3.1);
-
     return Scaffold(
       backgroundColor: Colors.grey[200],
       appBar: AppBar(title: const Text('My Bingo Playroom'), backgroundColor: Colors.indigo, foregroundColor: Colors.white, centerTitle: true),
@@ -279,59 +273,59 @@ class _BingoGamePageState extends State<BingoGamePage> {
           Container(width: double.infinity, color: Colors.indigo[900], padding: const EdgeInsets.all(6), child: Text(_gameStatusMessage, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 13))),
           
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
             child: Card(
               margin: EdgeInsets.zero,
-              elevation: 2,
+              elevation: 1,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+                padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 16.0),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     Row(
                       children: [
                         const Text('BALL: ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                        CircleAvatar(radius: 20, backgroundColor: Colors.amber[700], child: Text(_currentDrawnNumber != null ? '$_currentDrawnNumber' : '--', style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold))),
+                        CircleAvatar(radius: 18, backgroundColor: Colors.amber[700], child: Text(_currentDrawnNumber != null ? '$_currentDrawnNumber' : '--', style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold))),
                       ],
                     ),
-                    Text("Drawn Count: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))
+                    Text("Drawn Count: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))
                   ],
                 ),
               ),
             ),
           ),
           
-          // --- COMPACTED RESPONSIVE TICKET MATRIX ARRAY ---
+          // --- ZOOMABLE CANVAS AND COMPACT WRAPPER ---
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12.0),
-              child: GridView.builder(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: crossAxisCount,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: childAspectRatio,
-                ),
-                itemCount: 6,
-                itemBuilder: (context, ticketIndex) {
-                  return Card(
-                    margin: EdgeInsets.zero,
-                    elevation: 3,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: Colors.indigo, width: 1.5)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(6.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text("TICKET ${ticketIndex + 1}", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo[900], fontSize: 12, letterSpacing: 1.0)),
-                              const Icon(Icons.confirmation_number_outlined, size: 14, color: Colors.grey),
-                            ],
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 2.5,
+                boundaryMargin: const EdgeInsets.all(20.0),
+                child: Center(
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 500),
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(), // Handled by InteractiveViewer
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 1,
+                        crossAxisSpacing: 0,
+                        mainAxisSpacing: 6,
+                        childAspectRatio: 9 / 3.0,
+                      ),
+                      itemCount: 6,
+                      itemBuilder: (context, ticketIndex) {
+                        return Card(
+                          margin: EdgeInsets.zero,
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4), 
+                            side: const BorderSide(color: Colors.indigo, width: 1.2)
                           ),
-                          const SizedBox(height: 4),
-                          Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.all(3.0),
                             child: Table(
                               border: TableBorder.all(color: Colors.grey.shade300, width: 1.0),
                               children: List.generate(3, (r) {
@@ -348,13 +342,13 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                         }
                                       },
                                       child: Container(
-                                        height: 32,
+                                        height: 30,
                                         color: displayText.isEmpty ? Colors.grey.shade100 : Colors.white,
                                         alignment: Alignment.center,
                                         child: Stack(
                                           alignment: Alignment.center,
                                           children: [
-                                            Text(displayText, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87)),
+                                            Text(displayText, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
                                             if (isDaubed && displayText.isNotEmpty)
                                               Container(
                                                 decoration: BoxDecoration(
@@ -362,7 +356,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                                   color: Colors.blue.withOpacity(0.4),
                                                   border: Border.all(color: Colors.blueAccent, width: 1)
                                                 ),
-                                                margin: const EdgeInsets.all(2),
+                                                margin: const EdgeInsets.all(1),
                                               ),
                                           ],
                                         ),
@@ -373,20 +367,20 @@ class _BingoGamePageState extends State<BingoGamePage> {
                               }),
                             ),
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
             ),
           ),
           
           Container(
-            padding: const EdgeInsets.all(12.0),
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
             child: ElevatedButton(
               onPressed: () => _channel?.sink.add(jsonEncode({'action': 'claim_bingo'})),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green[600], foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 46), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green[600], foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 44), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
               child: const Text("CLAIM BINGO!", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ),
           )
