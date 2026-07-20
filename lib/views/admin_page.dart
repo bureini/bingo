@@ -31,8 +31,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
   String _generatedPassphrase = "";
 
   // Pattern Designer State
-  List<bool> _usPatternGrid = List.generate(25, (i) => i == 12);
-  List<bool> _ukPatternGrid = List.generate(27, (_) => false);
+  final List<bool> _usPatternGrid = List.generate(25, (i) => i == 12);
 
   @override
   void initState() {
@@ -54,7 +53,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Invalid Admin Security Token"),
+          content: Text("Invalid Admin Passphrase"),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -112,7 +111,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
     _announcementController.clear();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Announcement broadcasted to all connected players."),
+        content: Text("Announcement broadcasted to target room."),
         backgroundColor: Color(0xFF6366F1),
       ),
     );
@@ -161,7 +160,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
                       obscureText: true,
                       style: const TextStyle(color: Colors.white),
                       decoration: const InputDecoration(
-                        labelText: 'Admin Passphrase',
+                        labelText: 'Admin Security Token',
                         labelStyle: TextStyle(color: Colors.white70),
                         enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF233044))),
                         focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: accentIndigo)),
@@ -220,7 +219,6 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
     );
   }
 
-  // --- TAB 1: OVERVIEW ---
   Widget _buildOverviewTab(Color bgCard, Color accent) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -297,7 +295,6 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
     );
   }
 
-  // --- TAB 2: ROOM MANAGEMENT ---
   Widget _buildRoomsTab(Color bgCard, Color accent) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -422,7 +419,6 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
     );
   }
 
-  // --- TAB 3: RULES & PATTERNS ---
   Widget _buildRulesTab(Color bgCard, Color accent) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -472,26 +468,24 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
     );
   }
 
-  // --- TAB 4: CARD GENERATOR PREVIEW ---
   Widget _buildCardGeneratorTab(Color bgCard, Color accent) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.style, size: 48, color: Colors.indigoAccent),
-            const SizedBox(height: 12),
-            const Text("UK 90-Ball 6-Ticket Book Layout", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            const Text("Auto-generated 3x9 tickets containing all numbers 1-90 without duplicates.", style: TextStyle(color: Colors.grey, fontSize: 12)),
+          children: const [
+            Icon(Icons.style, size: 48, color: Colors.indigoAccent),
+            SizedBox(height: 12),
+            Text("UK 90-Ball 6-Ticket Book Layout", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            SizedBox(height: 8),
+            Text("Auto-generated 3x9 tickets containing all numbers 1-90 without duplicates.", style: TextStyle(color: Colors.grey, fontSize: 12)),
           ],
         ),
       ),
     );
   }
 
-  // --- TAB 5: CHAT & MODERATION ---
   Widget _buildChatModTab(Color bgCard, Color accent) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
