@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'views/admin_page.dart';
+import 'views/admin_page.dart'; // LINKED ADMIN PAGE COMPONENT
 
 void main() {
   runApp(const BingoApp());
@@ -13,7 +13,7 @@ class BingoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'My Bingo 6-Card Book',
+      title: 'My Bingo',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
@@ -77,12 +77,13 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                   children: [
                     GestureDetector(
                       onLongPress: () {
+                        // NAVIGATES TO EXTRACTED admin_page.dart
                         Navigator.push(
                           context,
-                            MaterialPageRoute(builder: (context) => const BingoAdminDashboardPage()),
-                            );
-                           },
-                           child: const Icon(Icons.sports_esports, size: 64, color: Colors.indigo),
+                          MaterialPageRoute(builder: (context) => const BingoAdminDashboardPage()),
+                        );
+                      },
+                      child: const Icon(Icons.sports_esports, size: 64, color: Colors.indigo),
                     ),
                     const SizedBox(height: 16),
                     const Text('My Bingo (6-Tickets)', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
@@ -101,7 +102,11 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                     const SizedBox(height: 24),
                     ElevatedButton(
                       onPressed: _navigateToRoom,
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.indigo,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 50),
+                      ),
                       child: const Text('Join Playroom'),
                     ),
                   ],
@@ -109,98 +114,6 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class BingoAdminDashboardPage extends StatefulWidget {
-  const BingoAdminDashboardPage({super.key});
-
-  @override
-  State<BingoAdminDashboardPage> createState() => _BingoAdminDashboardPageState();
-}
-
-class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
-  bool _isAuthenticated = false;
-  final _passwordController = TextEditingController();
-  final _roomTargetController = TextEditingController(text: "ROOM101");
-  String _selectedCardType = "90-Ball (6-Ticket Book)";
-  int _drawIntervalSeconds = 4;
-
-  void _verifyAdminAccess() {
-    if (_passwordController.text == "BingoAdmin2026") {
-      setState(() => _isAuthenticated = true);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid Admin Passphrase")));
-    }
-  }
-
-  void _broadcastGlobalRulesUpdate() {
-    final targetRoom = _roomTargetController.text.trim().toUpperCase();
-    final adminUrl = 'wss://bingo-multiplayer-backend.onrender.com/ws/$targetRoom/SystemAdmin';
-    try {
-      final channel = WebSocketChannel.connect(Uri.parse(adminUrl));
-      channel.sink.add(jsonEncode({
-        'action': 'update_room_rules',
-        'admin_secret': 'BingoAdmin2026',
-        'card_type': _selectedCardType,
-        'draw_interval': _drawIntervalSeconds,
-      }));
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Rules pushed to room $targetRoom"), backgroundColor: Colors.green));
-      Future.delayed(const Duration(seconds: 1), () => channel.sink.close());
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
-    }
-  }
-
-  @override
-  void dispose() {
-    _passwordController.dispose();
-    _roomTargetController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_isAuthenticated) {
-      return Scaffold(
-        appBar: AppBar(title: const Text("Admin Access Gate")),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(controller: _passwordController, obscureText: true, decoration: const InputDecoration(labelText: 'Security Token', border: OutlineInputBorder())),
-                const SizedBox(height: 16),
-                ElevatedButton(onPressed: _verifyAdminAccess, child: const Text('Authenticate'))
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-    return Scaffold(
-      appBar: AppBar(title: const Text("Game Rules Control UI")),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            TextField(controller: _roomTargetController, decoration: const InputDecoration(labelText: 'Target Room ID', border: OutlineInputBorder())),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _selectedCardType,
-              decoration: const InputDecoration(labelText: "Layout Selection", border: OutlineInputBorder()),
-              items: ["90-Ball (6-Ticket Book)"].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-              onChanged: (val) => setState(() => _selectedCardType = val!),
-            ),
-            const SizedBox(height: 16),
-            Slider(value: _drawIntervalSeconds.toDouble(), min: 2, max: 15, divisions: 13, onChanged: (val) => setState(() => _drawIntervalSeconds = val.toInt())),
-            ListTile(title: Text("Draw Speed Tempo: $_drawIntervalSeconds sec")),
-            ElevatedButton(onPressed: _broadcastGlobalRulesUpdate, child: const Text("Apply Dynamic Overrides")),
-          ],
         ),
       ),
     );
