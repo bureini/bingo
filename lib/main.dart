@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'views/admin_page.dart';
 
 void main() {
   runApp(const BingoApp());
