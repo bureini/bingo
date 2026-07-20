@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Master Admin Suite</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg-main: #0b0f19;
+      --bg-card: #151d2a;
+      --bg-sidebar: #070a10;
+      --bg-input: #0f172a;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --border: #233044;
+      --sidebar-width: 260px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    body { background-color: var(--bg-main); color: var(--text-main); display: flex; min-height: 100vh; overflow-x: hidden; }
+
+    aside {
+      width: var(--sidebar-width); background-color: var(--bg-sidebar); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 100;
+      transition: transform 0.3s ease;
+    }
+    .brand { padding: 1.5rem; font-size: 1.25rem; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); }
+    .nav-links { list-style: none; padding: 1rem 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .nav-item { padding: 0.85rem 1rem; border-radius: 0.5rem; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; gap: 0.85rem; font-weight: 500; transition: all 0.2s; }
+    .nav-item:hover, .nav-item.active { background-color: var(--accent); color: white; }
+
+    main { margin-left: var(--sidebar-width); flex: 1; display: flex; flex-direction: column; min-width: 0; transition: margin-left 0.3s ease; }
+    header { background-color: var(--bg-card); border-bottom: 1px solid var(--border); padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 90; }
+    .menu-btn { display: none; background: none; border: none; color: var(--text-main); font-size: 1.25rem; cursor: pointer; }
+    .admin-profile { display: flex; align-items: center; gap: 0.75rem; }
+    .avatar { width: 36px; height: 36px; border-radius: 50%; background-color: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: bold; }
+    .content-area { padding: 1.5rem; flex: 1; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem; }
+    .stat-card { background-color: var(--bg-card); padding: 1.25rem; border-radius: 0.75rem; border: 1px solid var(--border); }
+    .stat-card .title { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+    .stat-card .value { font-size: 1.6rem; font-weight: 700; }
+    .panel-card { background-color: var(--bg-card); border-radius: 0.75rem; border: 1px solid var(--border); padding: 1.5rem; margin-bottom: 1.5rem; }
+    .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; }
+
+    .btn { padding: 0.6rem 1.2rem; border-radius: 0.5rem; border: none; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s; }
+    .btn-primary { background-color: var(--accent); color: white; }
+    .btn-primary:hover { background-color: var(--accent-hover); }
+    .btn-danger { background-color: var(--danger); color: white; }
+    .btn-warning { background-color: var(--warning); color: black; }
+    .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.85rem; }
+
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.875rem; }
+    .form-control { width: 100%; padding: 0.75rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 0.5rem; color: white; font-size: 0.9rem; }
+    .input-group { display: flex; gap: 0.5rem; }
+    .price-rules-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; background: rgba(0, 0, 0, 0.2); padding: 1rem; border-radius: 0.5rem; border: 1px dashed var(--border); }
+
+    .table-container { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; }
+    th, td { padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+    th { color: var(--text-muted); font-weight: 600; }
+
+    .badge { padding: 0.25rem 0.6rem; border-radius: 1rem; font-size: 0.75rem; font-weight: 600; }
+    .badge-us { background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid var(--accent); }
+    .badge-uk { background: rgba(245, 158, 11, 0.2); color: var(--warning); border: 1px solid var(--warning); }
+    .badge-success { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+
+    .passphrase-box { font-family: monospace; background: rgba(0,0,0,0.3); padding: 0.2rem 0.5rem; border-radius: 0.25rem; border: 1px solid var(--border); color: var(--warning); font-size: 0.85rem; }
+
+    .type-switcher { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; background: var(--bg-input); padding: 0.25rem; border-radius: 0.5rem; border: 1px solid var(--border); }
+    .type-btn { flex: 1; padding: 0.6rem; border: none; background: transparent; color: var(--text-muted); border-radius: 0.35rem; font-weight: 600; cursor: pointer; text-align: center; transition: all 0.2s; }
+    .type-btn.active { background: var(--accent); color: white; }
+
+    .us-card-wrapper { width: 100%; max-width: 280px; margin: 0 auto; }
+    .us-header { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; text-align: center; font-weight: 800; color: var(--accent); margin-bottom: 6px; }
+    .bingo-card-5x5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; aspect-ratio: 1; }
+    .us-cell { background-color: var(--bg-main); border: 1px solid var(--border); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; user-select: none; font-size: 0.85rem; }
+    .us-cell.active { background-color: var(--accent); color: white; border-color: var(--accent-hover); }
+    .us-cell.free { background-color: var(--warning); color: black; font-size: 0.65rem; }
+
+    .uk-strip-container { display: flex; flex-direction: column; gap: 0.5rem; max-height: 520px; overflow-y: auto; padding-right: 0.5rem; }
+    .uk-single-ticket { background: var(--bg-main); border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.35rem; }
+    .bingo-card-3x9 { display: grid; grid-template-columns: repeat(9, 1fr); gap: 3px; }
+    .uk-cell { aspect-ratio: 1.1; background-color: var(--bg-card); border: 1px solid var(--border); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.8rem; cursor: pointer; }
+    .uk-cell.blank { background-color: rgba(0,0,0,0.3); border-color: transparent; }
+    .uk-cell.active { background-color: var(--warning); color: black; }
+
+    .chat-layout { display: grid; grid-template-columns: 260px 1fr; gap: 1.5rem; height: calc(100vh - 160px); min-height: 500px; }
+    .chat-rooms { border: 1px solid var(--border); border-radius: 0.75rem; background-color: var(--bg-card); overflow-y: auto; }
+    .chat-room-item { padding: 1rem; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .chat-room-item.active { background-color: rgba(99, 102, 241, 0.15); border-left: 4px solid var(--accent); }
+    .chat-window { border: 1px solid var(--border); border-radius: 0.75rem; background-color: var(--bg-card); display: flex; flex-direction: column; }
+    .chat-messages { flex: 1; padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.8rem; }
+    .msg { max-width: 80%; padding: 0.75rem 1rem; border-radius: 0.5rem; background-color: var(--bg-main); position: relative; }
+    .msg.system { background-color: rgba(99, 102, 241, 0.2); border: 1px solid var(--accent); align-self: center; text-align: center; max-width: 90%; }
+    .msg-header { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.3rem; }
+    .chat-input-area { padding: 1rem; border-top: 1px solid var(--border); display: flex; gap: 0.5rem; }
+    .chat-input-area input { flex: 1; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid var(--border); background-color: var(--bg-main); color: white; }
+
+    .modal-overlay { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+    .modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.75rem; width: 100%; max-width: 540px; padding: 1.5rem; max-height: 90vh; overflow-y: auto; }
+
+    @media (max-width: 768px) {
+      aside { transform: translateX(-100%); }
+      aside.open { transform: translateX(0); }
+      main { margin-left: 0; }
+      .menu-btn { display: block; }
+      .chat-layout { grid-template-columns: 1fr; height: auto; }
+      .chat-window { height: 450px; }
+      .uk-cell { font-size: 0.65rem; }
+      .price-rules-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <aside id="sidebar">
+    <div class="brand"><i class="fa-solid fa-dice"></i> Bingo Admin</div>
+    <ul class="nav-links">
+      <li class="nav-item active" onclick="switchTab('dashboard')"><i class="fa-solid fa-chart-pie"></i> Overview</li>
+      <li class="nav-item" onclick="switchTab('rooms')"><i class="fa-solid fa-door-open"></i> Room Management</li>
+      <li class="nav-item" onclick="switchTab('rules')"><i class="fa-solid fa-trophy"></i> Rules & Patterns</li>
+      <li class="nav-item" onclick="switchTab('cards')"><i class="fa-solid fa-table-cells"></i> Card Generator</li>
+      <li class="nav-item" onclick="switchTab('chat')"><i class="fa-solid fa-comments"></i> Chat & Moderation</li>
+    </ul>
+  </aside>
+
+  <main>
+    <header>
+      <button class="menu-btn" onclick="toggleSidebar()"><i class="fa-solid fa-bars"></i></button>
+      <h2 id="page-title">Dashboard Overview</h2>
+      <div class="admin-profile">
+        <div class="avatar">A</div>
+        <span>Super Admin</span>
+      </div>
+    </header>
+
+    <div class="content-area">
+      <section id="dashboard" class="tab-content active">
+        <div class="grid-4">
+          <div class="stat-card"><div class="title">Active Players</div><div class="value">2,841</div></div>
+          <div class="stat-card"><div class="title">US 75-Ball Rooms</div><div class="value" style="color: var(--accent);">5 Active</div></div>
+          <div class="stat-card"><div class="title">UK 90-Ball Rooms</div><div class="value" style="color: var(--warning);">4 Active</div></div>
+          <div class="stat-card"><div class="title">Today's Revenue</div><div class="value" style="color: var(--success);">$8,910</div></div>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-header"><h3>Recent Winners Log</h3></div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th><th>Game Format</th><th>Room</th><th>Winning Rule</th><th>Prize Won</th>
+                </tr>
+              </thead>
+              <tbody id="recent-winners"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="rooms" class="tab-content">
+        <div class="panel-header">
+          <h3>Active Game Rooms</h3>
+          <button class="btn btn-primary" onclick="openRoomModal()"><i class="fa-solid fa-plus"></i> Create New Room</button>
+        </div>
+        <div class="panel-card">
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Room Name</th><th>Type Format</th><th>Passphrase</th><th>Card Cost</th><th>Rule Prize Pool (1L / 2L / FH)</th><th>Capacity</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="rooms-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="rules" class="tab-content">
+        <div class="panel-header"><h3>Configure Winning Rules & Patterns</h3></div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+          <div class="panel-card">
+            <h3>Pattern Designer</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Select game variant and click tiles to configure winning rules.</p>
+            <div class="type-switcher">
+              <button class="type-btn active" id="btn-design-us" onclick="switchDesignVariant('US')">US 75-Ball (5x5)</button>
+              <button class="type-btn" id="btn-design-uk" onclick="switchDesignVariant('UK')">UK 90-Ball (3x9)</button>
+            </div>
+            <div id="designer-us-view">
+              <div class="us-card-wrapper">
+                <div class="us-header"><span>B</span><span>I</span><span>N</span><span>G</span><span>O</span></div>
+                <div class="bingo-card-5x5" id="us-pattern-grid"></div>
+              </div>
+            </div>
+            <div id="designer-uk-view" style="display:none;">
+              <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">Select rows required for win condition:</p>
+              <div class="bingo-card-3x9" id="uk-pattern-grid"></div>
+            </div>
+            <div class="form-group" style="margin-top: 1.25rem;">
+              <label>Pattern Rule Name</label>
+              <input type="text" id="pattern-name" class="form-control" placeholder="e.g. Outer Edge Cross / Full House">
+            </div>
+            <button class="btn btn-primary" style="width: 100%;" onclick="saveCustomPattern()"><i class="fa-solid fa-floppy-disk"></i> Save Pattern Rule</button>
+          </div>
+
+          <div class="panel-card">
+            <h3>Active Pattern Configurations</h3>
+            <div class="table-container">
+              <table>
+                <thead><tr><th>Rule Name</th><th>Variant</th><th>Action</th></tr></thead>
+                <tbody id="patterns-list"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="cards" class="tab-content">
+        <div class="panel-header"><h3>Live Bingo Ticket Preview Generator</h3></div>
+        <div class="type-switcher" style="max-width: 400px;">
+          <button class="type-btn active" id="btn-card-us" onclick="switchCardPreview('US')">US 5x5 Single Card</button>
+          <button class="type-btn" id="btn-card-uk" onclick="switchCardPreview('UK')">UK 3x9 6-Ticket Book</button>
+        </div>
+        <div class="panel-card" style="display: flex; justify-content: center; align-items: center; min-height: 400px; background: var(--bg-input);">
+          <div id="preview-us-container" class="us-card-wrapper" style="width: 100%; max-width: 320px; background: var(--bg-card); padding: 1rem; border-radius: 0.75rem; border: 1px solid var(--border);">
+            <div class="us-header" style="font-size: 1.2rem;"><span>B</span><span>I</span><span>N</span><span>G</span><span>O</span></div>
+            <div class="bingo-card-5x5" id="live-us-card"></div>
+            <button class="btn btn-primary btn-sm" style="width:100%; margin-top:1rem; justify-content:center;" onclick="generateUSCard()"><i class="fa-solid fa-rotate"></i> Randomize US Card</button>
+          </div>
+          <div id="preview-uk-container" style="display:none; width: 100%; max-width: 650px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+              <h4 style="color: var(--warning);">UK 90-Ball Full Strip (6-Ticket Book)</h4>
+              <button class="btn btn-primary btn-sm" onclick="generateUKStrip()"><i class="fa-solid fa-rotate"></i> Randomize Book Strip</button>
+            </div>
+            <div class="uk-strip-container" id="live-uk-strip"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="chat" class="tab-content">
+        <div class="chat-layout">
+          <div class="chat-rooms">
+            <div style="padding: 1rem; border-bottom: 1px solid var(--border); font-weight: bold;">Rooms Chat Feed</div>
+            <div id="chat-room-selector"></div>
+          </div>
+          <div class="chat-window">
+            <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+              <span id="current-chat-room-title" style="font-weight: bold;">Select a Room</span>
+              <span class="badge badge-success"><i class="fa-solid fa-shield-halved"></i> Mod Active</span>
+            </div>
+            <div class="chat-messages" id="chat-messages-container"></div>
+            <div class="chat-input-area">
+              <input type="text" id="system-chat-input" placeholder="Broadcast system message to room...">
+              <button class="btn btn-primary" onclick="sendSystemBroadcast()"><i class="fa-solid fa-paper-plane"></i></button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="modal-overlay" id="roomModal">
+    <div class="modal">
+      <div class="panel-header">
+        <h3 id="modal-title">Create New Bingo Room</h3>
+        <button style="background:none; border:none; color:white; cursor:pointer;" onclick="closeRoomModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form id="room-form" onsubmit="handleRoomSubmit(event)">
+        <input type="hidden" id="room-id">
+        <div class="form-group"><label>Room Name</label><input type="text" id="room-name" class="form-control" required placeholder="Main Hall 90"></div>
+        <div class="form-group">
+          <label><i class="fa-solid fa-key" style="color:var(--accent);"></i> Admin Access Passphrase</label>
+          <div class="input-group">
+            <input type="text" id="room-passphrase" class="form-control" style="font-family: monospace;" readonly required>
+            <button type="button" class="btn btn-warning btn-sm" onclick="resetPassphraseInput()"><i class="fa-solid fa-arrows-rotate"></i> Reset</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Bingo Card Type</label>
+          <select id="room-type" class="form-control" required>
+            <option value="US 75-Ball (5x5)">US 75-Ball (5x5 Grid)</option>
+            <option value="UK 90-Ball (3x9)">UK 90-Ball (3x9 6-Ticket Book Strip)</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Price per Ticket / Strip ($)</label><input type="number" id="room-cost" class="form-control" min="0.1" step="0.1" required value="1.00"></div>
+        <div class="form-group">
+          <label><i class="fa-solid fa-trophy" style="color:var(--warning);"></i> Game Rules Prize Amounts ($)</label>
+          <div class="price-rules-grid">
+            <div><label style="font-size: 0.75rem;">1 Line</label><input type="number" id="price-1line" class="form-control" value="10.00" required></div>
+            <div><label style="font-size: 0.75rem;">2 Lines</label><input type="number" id="price-2lines" class="form-control" value="25.00" required></div>
+            <div><label style="font-size: 0.75rem;">Full House</label><input type="number" id="price-fullhouse" class="form-control" value="100.00" required></div>
+          </div>
+        </div>
+        <div class="form-group"><label>Max Capacity</label><input type="number" id="room-capacity" class="form-control" required value="100"></div>
+        <div class="form-group"><label>Auto-Call Speed (Seconds)</label><input type="number" id="room-speed" class="form-control" min="1" max="10" required value="3"></div>
+        <div style="display:flex; justify-content: flex-end; gap: 0.5rem; margin-top:1.5rem;">
+          <button type="button" class="btn" style="background:var(--border); color:white;" onclick="closeRoomModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Room</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    function dispatchAdminSocketAction(roomId, payload) {
+      const formattedRoom = roomId.replace(/\s+/g, '').toUpperCase();
+      const adminWsUrl = `wss://bingo-multiplayer-backend.onrender.com/ws/${formattedRoom}/MasterAdmin`;
+      try {
+        const socket = new WebSocket(adminWsUrl);
+        socket.onopen = () => { socket.send(JSON.stringify(payload)); setTimeout(() => socket.close(), 1000); };
+      } catch (err) { console.error("Admin socket error:", err); }
+    }
+
+    function generatePassphrase(length = 12) {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789#@!";
+      let res = ""; for (let i = 0; i < length; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
+      return res;
+    }
+
+    let rooms = [
+      { id: 1, name: "Liberty Bell 75", type: "US 75-Ball (5x5)", passphrase: generatePassphrase(), cost: 1.00, price1Line: 15.00, price2Lines: 35.00, priceFullHouse: 150.00, players: 45, maxPlayers: 100, speed: 3 },
+      { id: 2, name: "Royal Crown UK 90", type: "UK 90-Ball (3x9)", passphrase: generatePassphrase(), cost: 2.50, price1Line: 30.00, price2Lines: 75.00, priceFullHouse: 350.00, players: 82, maxPlayers: 150, speed: 4 }
+    ];
+    let patterns = [{ id: 1, name: "Full House", variant: "UK 90-Ball (3x9)" }];
+    let winnersLog = [{ name: "JohnDoe99", variant: "US 75-Ball", room: "Liberty Bell 75", pattern: "Four Corners", prize: "$35.00" }];
+    let chatData = { 1: [], 2: [] };
+    let currentChatRoomId = 1, selectedDesignVariant = 'US';
+    let usPatternGridState = Array(25).fill(false); usPatternGridState[12] = true;
+    let ukPatternGridState = Array(27).fill(false);
+
+    document.addEventListener("DOMContentLoaded", () => {
+      renderDashboard(); renderRooms(); renderPatterns(); initUSPatternGrid(); initUKPatternGrid(); renderChatRooms(); generateUSCard(); generateUKStrip();
+    });
+
+    function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active'); event.currentTarget.classList.add('active');
+    }
+    function renderDashboard() {
+      document.getElementById('recent-winners').innerHTML = winnersLog.map(w => `<tr><td><strong>${w.name}</strong></td><td><span class="badge badge-us">${w.variant}</span></td><td>${w.room}</td><td><span class="badge badge-success">${w.pattern}</span></td><td><strong>${w.prize}</strong></td></tr>`).join('');
+    }
+    function renderRooms() {
+      document.getElementById('rooms-table-body').innerHTML = rooms.map(r => `<tr><td><strong>${r.name}</strong></td><td><span class="badge badge-uk">${r.type}</span></td><td><span class="passphrase-box">${r.passphrase}</span></td><td>$${r.cost.toFixed(2)}</td><td>1L: $${r.price1Line} | 2L: $${r.price2Lines} | FH: $${r.priceFullHouse}</td><td>${r.players}/${r.maxPlayers}</td><td><button class="btn btn-sm btn-primary" onclick="editRoom(${r.id})"><i class="fa-solid fa-pen"></i></button></td></tr>`).join('');
+    }
+    function resetPassphraseInput() { document.getElementById('room-passphrase').value = generatePassphrase(); }
+    function openRoomModal(isEdit = false) { if(!isEdit) document.getElementById('room-passphrase').value = generatePassphrase(); document.getElementById('roomModal').style.display = 'flex'; }
+    function closeRoomModal() { document.getElementById('roomModal').style.display = 'none'; document.getElementById('room-form').reset(); }
+    function handleRoomSubmit(e) {
+      e.preventDefault();
+      const name = document.getElementById('room-name').value;
+      const speed = parseFloat(document.getElementById('room-speed').value);
+      dispatchAdminSocketAction(name, { action: "update_room_rules", admin_secret: "BingoAdmin2026", winning_pattern: "Full House", draw_interval: speed });
+      closeRoomModal();
+    }
+    function editRoom(id) { openRoomModal(true); }
+    function switchDesignVariant(v) { selectedDesignVariant = v; document.getElementById('designer-us-view').style.display = v === 'US' ? 'block' : 'none'; document.getElementById('designer-uk-view').style.display = v === 'UK' ? 'block' : 'none'; }
+    function initUSPatternGrid() { const g = document.getElementById('us-pattern-grid'); g.innerHTML = ''; for(let i=0; i<25; i++) { const c = document.createElement('div'); c.className = 'us-cell' + (i===12?' free':''); c.innerText = i===12?'FREE':''; g.appendChild(c); } }
+    function initUKPatternGrid() { const g = document.getElementById('uk-pattern-grid'); g.innerHTML = ''; for(let i=0; i<27; i++) { const c = document.createElement('div'); c.className = 'uk-cell'; c.innerText = `C${(i%9)+1}`; g.appendChild(c); } }
+    function saveCustomPattern() {}
+    function renderPatterns() {}
+    function switchCardPreview(t) { document.getElementById('preview-us-container').style.display = t === 'US' ? 'block' : 'none'; document.getElementById('preview-uk-container').style.display = t === 'UK' ? 'block' : 'none'; }
+    function generateUSCard() {}
+    function generateUKStrip() {}
+    function renderChatRooms() {}
+    function sendSystemBroadcast() {}
+  </script>
+</body>
+</html>
