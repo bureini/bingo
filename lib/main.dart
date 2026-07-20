@@ -116,6 +116,7 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
   }
 }
 
+// --- ENHANCED ADMIN DASHBOARD PAGE ---
 class BingoAdminDashboardPage extends StatefulWidget {
   const BingoAdminDashboardPage({super.key});
 
@@ -125,41 +126,143 @@ class BingoAdminDashboardPage extends StatefulWidget {
 
 class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
   bool _isAuthenticated = false;
-  final _passwordController = TextEditingController();
+  String _adminPassphrase = "BingoAdmin2026";
+  
+  final _passphraseController = TextEditingController(text: "BingoAdmin2026");
+  final _newPassphraseController = TextEditingController();
   final _roomTargetController = TextEditingController(text: "ROOM101");
-  String _selectedCardType = "90-Ball (6-Ticket Book)";
+  final _newRoomController = TextEditingController();
+  
+  // Rule & Pricing Controls
+  final _ticketPriceController = TextEditingController(text: "Free");
+  final _prize1LineController = TextEditingController(text: "$10.00");
+  final _prize2LinesController = TextEditingController(text: "$25.00");
+  final _prizeFullHouseController = TextEditingController(text: "$100.00");
+  final _rulesNoticeController = TextEditingController(text: "1 Line = 5 marked, 2 Lines = 10 marked, Full House = 15 marked.");
+
   int _drawIntervalSeconds = 4;
+  WebSocketChannel? _adminChannel;
+  bool _isRoomPaused = false;
+  List<String> _connectedParticipants = [];
 
   void _verifyAdminAccess() {
-    if (_passwordController.text == "BingoAdmin2026") {
-      setState(() => _isAuthenticated = true);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid Admin Passphrase")));
-    }
+    setState(() {
+      _adminPassphrase = _passphraseController.text.trim();
+      _isAuthenticated = true;
+    });
+    _connectAdminSocket();
   }
 
-  void _broadcastGlobalRulesUpdate() {
+  void _connectAdminSocket() {
     final targetRoom = _roomTargetController.text.trim().toUpperCase();
     final adminUrl = 'wss://bingo-multiplayer-backend.onrender.com/ws/$targetRoom/SystemAdmin';
     try {
-      final channel = WebSocketChannel.connect(Uri.parse(adminUrl));
-      channel.sink.add(jsonEncode({
-        'action': 'update_room_rules',
-        'admin_secret': 'BingoAdmin2026',
-        'card_type': _selectedCardType,
-        'draw_interval': _drawIntervalSeconds,
-      }));
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Rules pushed to room $targetRoom"), backgroundColor: Colors.green));
-      Future.delayed(const Duration(seconds: 1), () => channel.sink.close());
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      _adminChannel = WebSocketChannel.connect(Uri.parse(adminUrl));
+      _adminChannel!.stream.listen((message) {
+        final data = jsonDecode(message);
+        if (data['active_users'] != null) {
+          setState(() {
+            _connectedParticipants = List<String>.from(data['active_users']);
+          });
+        }
+        if (data['event'] == 'admin_success') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['message']), backgroundColor: Colors.green),
+          );
+        } else if (data['event'] == 'game_paused') {
+          setState(() => _isRoomPaused = true);
+        } else if (data['event'] == 'game_resumed') {
+          setState(() => _isRoomPaused = false);
+        }
+      });
+    } catch (_) {}
+  }
+
+  void _sendAdminAction(Map<String, dynamic> payload) {
+    if (_adminChannel != null) {
+      payload['admin_secret'] = _adminPassphrase;
+      _adminChannel!.sink.add(jsonEncode(payload));
+    } else {
+      _connectAdminSocket();
     }
+  }
+
+  void _resetPassphrase() {
+    final newPass = _newPassphraseController.text.trim();
+    if (newPass.isNotEmpty) {
+      _sendAdminAction({
+        'action': 'reset_passphrase',
+        'new_passphrase': newPass,
+      });
+      setState(() {
+        _adminPassphrase = newPass;
+        _passphraseController.text = newPass;
+      });
+      _newPassphraseController.clear();
+    }
+  }
+
+  void _createNewRoom() {
+    final roomCode = _newRoomController.text.trim().toUpperCase();
+    if (roomCode.isNotEmpty) {
+      _sendAdminAction({
+        'action': 'create_room',
+        'new_room_id': roomCode,
+      });
+      _newRoomController.clear();
+    }
+  }
+
+  void _deleteTargetRoom() {
+    final targetRoom = _roomTargetController.text.trim().toUpperCase();
+    if (targetRoom.isNotEmpty) {
+      _sendAdminAction({
+        'action': 'delete_room',
+        'target_room_id': targetRoom,
+      });
+    }
+  }
+
+  void _broadcastRulesAndPricing() {
+    _sendAdminAction({
+      'action': 'configure_rules_pricing',
+      'ticket_price': _ticketPriceController.text.trim(),
+      'prizes': {
+        'one_line': _prize1LineController.text.trim(),
+        'two_lines': _prize2LinesController.text.trim(),
+        'full_house': _prizeFullHouseController.text.trim(),
+      },
+      'rules_notice': _rulesNoticeController.text.trim(),
+    });
+  }
+
+  void _toggleGamePause() {
+    _sendAdminAction({
+      'action': 'toggle_game_state',
+      'command': _isRoomPaused ? 'resume' : 'pause',
+    });
+    setState(() => _isRoomPaused = !_isRoomPaused);
+  }
+
+  void _updateSpeedTempo() {
+    _sendAdminAction({
+      'action': 'update_room_rules',
+      'draw_interval': _drawIntervalSeconds,
+    });
   }
 
   @override
   void dispose() {
-    _passwordController.dispose();
+    _passphraseController.dispose();
+    _newPassphraseController.dispose();
     _roomTargetController.dispose();
+    _newRoomController.dispose();
+    _ticketPriceController.dispose();
+    _prize1LineController.dispose();
+    _prize2LinesController.dispose();
+    _prizeFullHouseController.dispose();
+    _rulesNoticeController.dispose();
+    _adminChannel?.sink.close();
     super.dispose();
   }
 
@@ -167,47 +270,279 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
   Widget build(BuildContext context) {
     if (!_isAuthenticated) {
       return Scaffold(
-        appBar: AppBar(title: const Text("Admin Access Gate")),
+        appBar: AppBar(title: const Text("Admin Access Gate"), backgroundColor: Colors.indigo, foregroundColor: Colors.white),
         body: Center(
-          child: Padding(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 400),
             padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(controller: _passwordController, obscureText: true, decoration: const InputDecoration(labelText: 'Security Token', border: OutlineInputBorder())),
-                const SizedBox(height: 16),
-                ElevatedButton(onPressed: _verifyAdminAccess, child: const Text('Authenticate'))
-              ],
+            child: Card(
+              elevation: 4,
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.admin_panel_settings, size: 56, color: Colors.indigo),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _passphraseController,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'Admin Passphrase', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _verifyAdminAccess,
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 48)),
+                      child: const Text('Authenticate'),
+                    )
+                  ],
+                ),
+              ),
             ),
           ),
         ),
       );
     }
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Game Rules Control UI")),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            TextField(controller: _roomTargetController, decoration: const InputDecoration(labelText: 'Target Room ID', border: OutlineInputBorder())),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _selectedCardType,
-              decoration: const InputDecoration(labelText: "Layout Selection", border: OutlineInputBorder()),
-              items: ["90-Ball (6-Ticket Book)"].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-              onChanged: (val) => setState(() => _selectedCardType = val!),
+      appBar: AppBar(
+        title: const Text("Admin Suite & Room Control"),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.sync),
+            tooltip: 'Reconnect Admin Socket',
+            onPressed: _connectAdminSocket,
+          )
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 750),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. SECURITY & PASSPHRASE RESET
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("Security & Admin Passphrase", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _newPassphraseController,
+                                decoration: const InputDecoration(labelText: 'New Secret Passphrase', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton(
+                              onPressed: _resetPassphrase,
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+                              child: const Text("Reset Token"),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // 2. ROOM CREATION & MANAGEMENT
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("Room Management Engine", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _newRoomController,
+                                decoration: const InputDecoration(labelText: 'New Room Code (e.g. VIP_2)', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.add),
+                              label: const Text("Create Room"),
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                              onPressed: _createNewRoom,
+                            ),
+                          ],
+                        ),
+                        const Divider(height: 24),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _roomTargetController,
+                                decoration: const InputDecoration(labelText: 'Target Room ID', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
+                              icon: Icon(_isRoomPaused ? Icons.play_arrow : Icons.pause),
+                              label: Text(_isRoomPaused ? "Resume" : "Pause"),
+                              style: ElevatedButton.styleFrom(backgroundColor: _isRoomPaused ? Colors.green : Colors.orange.shade800, foregroundColor: Colors.white),
+                              onPressed: _toggleGamePause,
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.delete_forever, color: Colors.red),
+                              label: const Text("Delete", style: TextStyle(color: Colors.red)),
+                              onPressed: _deleteTargetRoom,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // 3. CONNECTED PARTICIPANTS
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.between,
+                          children: [
+                            const Text("Connected Participants", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                            Chip(label: Text("${_connectedParticipants.length} Connected"), backgroundColor: Colors.indigo.shade50),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        _connectedParticipants.isEmpty
+                            ? const Text("No active players connected in target room.", style: TextStyle(color: Colors.grey, fontSize: 12))
+                            : Wrap(
+                                spacing: 8.0,
+                                children: _connectedParticipants.map((user) => Chip(
+                                  avatar: const CircleAvatar(backgroundColor: Colors.green, radius: 4),
+                                  label: Text(user, style: const TextStyle(fontSize: 12)),
+                                )).toList(),
+                              ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // 4. DEFINE RULES, PRICING & PRIZES
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("Rules, Pricing & Prizes Configuration", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _ticketPriceController,
+                                decoration: const InputDecoration(labelText: 'Ticket Cost (Free, $5, etc)', border: OutlineInputBorder()),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: _prize1LineController,
+                                decoration: const InputDecoration(labelText: '1 Line Prize', border: OutlineInputBorder()),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _prize2LinesController,
+                                decoration: const InputDecoration(labelText: '2 Lines Prize', border: OutlineInputBorder()),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: _prizeFullHouseController,
+                                decoration: const InputDecoration(labelText: 'Full House Prize', border: OutlineInputBorder()),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _rulesNoticeController,
+                          maxLines: 2,
+                          decoration: const InputDecoration(labelText: 'Rules Announcement Notice', border: OutlineInputBorder()),
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.campaign),
+                          label: const Text("Broadcast Rules & Prizes to Room"),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 44)),
+                          onPressed: _broadcastRulesAndPricing,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // 5. DRAW SPEED TEMPO
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Ball Drawing Speed: $_drawIntervalSeconds sec / ball", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                        Slider(
+                          value: _drawIntervalSeconds.toDouble(),
+                          min: 2,
+                          max: 15,
+                          divisions: 13,
+                          onChanged: (val) => setState(() => _drawIntervalSeconds = val.toInt()),
+                        ),
+                        ElevatedButton(
+                          onPressed: _updateSpeedTempo,
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo.shade700, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 40)),
+                          child: const Text("Apply Speed Setting"),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Slider(value: _drawIntervalSeconds.toDouble(), min: 2, max: 15, divisions: 13, onChanged: (val) => setState(() => _drawIntervalSeconds = val.toInt())),
-            ListTile(title: Text("Draw Speed Tempo: $_drawIntervalSeconds sec")),
-            ElevatedButton(onPressed: _broadcastGlobalRulesUpdate, child: const Text("Apply Dynamic Overrides")),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
+// --- MAIN GAME VIEW ---
 class BingoGamePage extends StatefulWidget {
   final String roomId;
   final String username;
@@ -226,13 +561,15 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
   int? _currentDrawnNumber;
   String _gameStatusMessage = "Connecting...";
 
-  // Real-time Messaging & Presence Registries
   final List<Map<String, String>> _chatMessages = [];
   final List<String> _activePlayers = [];
   final TextEditingController _chatController = TextEditingController();
   final ScrollController _chatScrollController = ScrollController();
 
-  // Procedural Particle Victory Overlay
+  String _selectedClaimType = "one_line";
+  String _ticketPrice = "Free";
+  String _rulesNotice = "";
+
   AnimationController? _victoryController;
   bool _showVictoryOverlay = false;
   List<_ConfettiParticle> _confetti = [];
@@ -241,7 +578,7 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
   void initState() {
     super.initState();
     _connectToWebSocket();
-    
+
     _victoryController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 5),
@@ -272,6 +609,8 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                 _ticketBookNumbers = List<List<List<dynamic>>>.from(data['book']);
                 _bookDaubedStates = List.generate(6, (_) => List.generate(3, (_) => List.filled(9, false)));
                 _gameStatusMessage = "Room Connected: ${data['room_id']}";
+                _ticketPrice = data['ticket_price'] ?? "Free";
+                _rulesNotice = data['rules_notice'] ?? "";
                 _isChannelConnected = true;
               });
               break;
@@ -317,64 +656,100 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                 }
               });
               break;
-            case 'room_rules_changed':
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['message'])));
+            case 'rules_updated':
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text("📢 Room Rules Updated"),
+                  content: Text(data['message'] ?? ""),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK"))
+                  ],
+                ),
+              );
+              break;
+            case 'stage_won':
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text("🎉 ${data['winner']} WON ${data['claim_type']}!"), backgroundColor: Colors.green),
+              );
+              if (data['winner'] == widget.username) {
+                _triggerVictoryAnimation();
+              }
+              break;
+            case 'invalid_claim':
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(data['message']), backgroundColor: Colors.redAccent),
+              );
               break;
             case 'game_over':
               setState(() {
                 final winner = data['winner'];
-                _gameStatusMessage = winner != null ? "🏆 Winner: $winner!" : "Game Over";
-                
+                _gameStatusMessage = winner != null ? "🏆 Full House Winner: $winner!" : "Game Over";
                 if (winner == widget.username) {
-                  _showVictoryOverlay = true;
-                  _initializeConfetti();
-                  _victoryController?.repeat();
+                  _triggerVictoryAnimation();
                 }
               });
               break;
             case 'system_disconnect':
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['message']), backgroundColor: Colors.red));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(data['message']), backgroundColor: Colors.red),
+              );
               break;
           }
         },
-        onDone: () {
-          setState(() {
-            _isChannelConnected = false;
-            _gameStatusMessage = "Connection Stalled. Reconnect required.";
-          });
-        },
-        onError: (error) {
-          setState(() {
-            _isChannelConnected = false;
-            _gameStatusMessage = "Network error encountered.";
-          });
-        },
+        onDone: () => setState(() => _isChannelConnected = false),
+        onError: (_) => setState(() => _isChannelConnected = false),
       );
     } catch (_) {
-      setState(() {
-        _isChannelConnected = false;
-        _gameStatusMessage = "Failed to establish link.";
-      });
+      setState(() => _isChannelConnected = false);
     }
+  }
+
+  void _triggerVictoryAnimation() {
+    setState(() => _showVictoryOverlay = true);
+    _initializeConfetti();
+    _victoryController?.repeat();
   }
 
   void _sendChatMessage() {
     final text = _chatController.text.trim();
     if (text.isNotEmpty && _channel != null) {
-      _channel!.sink.add(jsonEncode({
-        'action': 'send_chat',
-        'message': text,
-      }));
+      _channel!.sink.add(jsonEncode({'action': 'send_chat', 'message': text}));
       _chatController.clear();
     }
+  }
+
+  void _claimCurrentStage() {
+    if (_channel != null && _isChannelConnected) {
+      _channel!.sink.add(jsonEncode({'action': 'claim_bingo', 'claim_type': _selectedClaimType}));
+    }
+  }
+
+  void _confirmQuitGame() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Quit Game?'),
+        content: const Text('Are you sure you want to exit the current playroom?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.pop(context);
+              _channel?.sink.close();
+              Navigator.pop(context);
+            },
+            child: const Text('Quit'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _initializeConfetti() {
     final random = math.Random();
     _confetti = List.generate(120, (index) {
-      final shapeTypes = ConfettiShape.values;
-      final assignedShape = shapeTypes[random.nextInt(shapeTypes.length)];
-
       return _ConfettiParticle(
         x: random.nextDouble() * 400,
         y: -random.nextDouble() * 200,
@@ -383,7 +758,7 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
         speedY: random.nextDouble() * 3 + 2,
         speedX: random.nextDouble() * 2 - 1,
         rotation: random.nextDouble() * math.pi,
-        shape: assignedShape,
+        shape: ConfettiShape.values[random.nextInt(ConfettiShape.values.length)],
       );
     });
   }
@@ -395,7 +770,6 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
         particle.y += particle.speedY;
         particle.x += particle.speedX;
         particle.rotation += 0.05;
-        
         if (particle.y > 800) {
           particle.y = -20;
           particle.x = random.nextDouble() * 500;
@@ -415,55 +789,29 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobileViewport = screenWidth < 768;
+    final bool isMobileViewport = MediaQuery.of(context).size.width < 768;
 
     return Scaffold(
       backgroundColor: Colors.grey[300],
       appBar: AppBar(
-        title: const Text('My Bingo Playroom'), 
-        backgroundColor: Colors.indigo, 
-        foregroundColor: Colors.white, 
+        title: Text('Playroom: ${widget.roomId}'),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
         centerTitle: true,
         actions: [
           IconButton(
-            icon: Icon(
-              _isChannelConnected ? Icons.cloud_done : Icons.cloud_off,
-              color: _isChannelConnected ? Colors.greenAccent : Colors.redAccent,
-            ),
-            tooltip: _isChannelConnected ? 'Connection Healthy' : 'Link Offline - Tap to Reconnect',
+            icon: Icon(_isChannelConnected ? Icons.cloud_done : Icons.cloud_off, color: _isChannelConnected ? Colors.greenAccent : Colors.redAccent),
             onPressed: () {
-              if (!_isChannelConnected) {
-                _connectToWebSocket();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Attempting recovery handshakes...")),
-                );
-              }
+              if (!_isChannelConnected) _connectToWebSocket();
             },
           ),
-          if (widget.username == 'BingoDev')
-            IconButton(
-              icon: Icon(
-                _showVictoryOverlay ? Icons.celebration : Icons.developer_mode,
-                color: _showVictoryOverlay ? Colors.amberAccent : Colors.white70,
-              ),
-              tooltip: 'Test Victory Splash Overlay',
-              onPressed: () {
-                setState(() {
-                  _showVictoryOverlay = !_showVictoryOverlay;
-                  if (_showVictoryOverlay) {
-                    _initializeConfetti();
-                    _victoryController?.repeat();
-                  } else {
-                    _victoryController?.stop();
-                  }
-                });
-              },
-            ),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: _confirmQuitGame,
+          ),
           Builder(
             builder: (context) => IconButton(
               icon: const Icon(Icons.history),
-              tooltip: 'Draw History',
               onPressed: () => Scaffold.of(context).openEndDrawer(),
             ),
           ),
@@ -491,19 +839,13 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                   : ListView.separated(
                       padding: const EdgeInsets.all(16.0),
                       itemCount: _drawnNumbers.length,
-                      separatorBuilder: (context, index) => const Divider(height: 12, thickness: 0.5),
+                      separatorBuilder: (_, __) => const Divider(height: 12, thickness: 0.5),
                       itemBuilder: (context, index) {
                         final reverseIndex = _drawnNumbers.length - 1 - index;
                         final ballNumber = _drawnNumbers[reverseIndex];
-                        final sequentialCall = reverseIndex + 1;
-
                         return Row(
                           children: [
-                            Container(
-                              width: 32,
-                              alignment: Alignment.center,
-                              child: Text('#$sequentialCall', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade400)),
-                            ),
+                            Text('#${reverseIndex + 1}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade400)),
                             const SizedBox(width: 12),
                             CircleAvatar(
                               radius: 18,
@@ -511,7 +853,7 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                               child: Text('$ballNumber', style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold)),
                             ),
                             const SizedBox(width: 16),
-                            Text('Ball $ballNumber called', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black87)),
+                            Text('Ball $ballNumber called', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                           ],
                         );
                       },
@@ -522,31 +864,34 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
       ),
       body: Stack(
         children: [
-          isMobileViewport 
-            ? _buildMobileLayout() 
-            : _buildDesktopLayout(),
-
+          isMobileViewport ? _buildMobileLayout() : _buildDesktopLayout(),
           if (_showVictoryOverlay)
             Positioned.fill(
-              child: IgnorePointer(
+              child: GestureDetector(
+                onTap: () => setState(() => _showVictoryOverlay = false),
                 child: CustomPaint(
                   painter: ConfettiPainter(particles: _confetti),
                   child: Container(
-                    color: Colors.black.withOpacity(0.15),
+                    color: Colors.black.withOpacity(0.2),
                     alignment: Alignment.center,
                     child: Card(
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white,
                       elevation: 12,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 32.0, vertical: 24.0),
+                      child: Padding(
+                        padding: const EdgeInsets.all(28.0),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.emoji_events, size: 80, color: Colors.amber),
-                            SizedBox(height: 12),
-                            Text('BINGO!', style: TextStyle(fontSize: 36, fontWeight: FontWeight.black, color: Colors.indigo, letterSpacing: 2)),
-                            Text('Authoritative Full House Confirmed', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
+                            const Icon(Icons.emoji_events, size: 72, color: Colors.amber),
+                            const SizedBox(height: 12),
+                            const Text('BINGO!', style: TextStyle(fontSize: 32, fontWeight: FontWeight.black, color: Colors.indigo)),
+                            const Text('Claim Verified!', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: () => setState(() => _showVictoryOverlay = false),
+                              child: const Text('Continue'),
+                            ),
                           ],
                         ),
                       ),
@@ -579,10 +924,7 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
           backgroundColor: Colors.white,
           collapsedBackgroundColor: Colors.indigo[50],
           children: [
-            SizedBox(
-              height: 220,
-              child: _buildSidebarPanel(),
-            )
+            SizedBox(height: 220, child: _buildSidebarPanel()),
           ],
         ),
       ],
@@ -618,7 +960,8 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                       ),
                     ],
                   ),
-                  Text("Drawn: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))
+                  Text("Ticket Fee: $_ticketPrice", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.indigo)),
+                  Text("Drawn: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                 ],
               ),
             ),
@@ -630,7 +973,7 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
             child: LayoutBuilder(
               builder: (context, constraints) {
                 double dynamicCellHeight = (constraints.maxHeight - 24) / 18;
-                if (dynamicCellHeight < 16) dynamicCellHeight = 16; 
+                if (dynamicCellHeight < 16) dynamicCellHeight = 16;
 
                 return InteractiveViewer(
                   minScale: 0.3,
@@ -642,25 +985,19 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: List.generate(6, (ticketIndex) {
                           return Container(
-                            margin: const EdgeInsets.symmetric(vertical: 4.0),
+                            margin: const EdgeInsets.symmetric(vertical: 3.0),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(color: Colors.indigo.shade300, width: 1.2),
-                              boxShadow: [
-                                BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 2))
-                              ],
                             ),
                             child: Column(
                               children: [
                                 Container(
                                   width: double.infinity,
                                   padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 8.0),
-                                  decoration: BoxDecoration(
-                                    color: Colors.indigo.shade50,
-                                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(5), topRight: Radius.circular(5)),
-                                  ),
-                                  child: Text('TICKET #${ticketIndex + 1}', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.indigo.shade700, letterSpacing: 0.5)),
+                                  color: Colors.indigo.shade50,
+                                  child: Text('TICKET #${ticketIndex + 1}', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.indigo.shade700)),
                                 ),
                                 Table(
                                   border: TableBorder.all(color: Colors.grey.shade200, width: 1.0),
@@ -670,7 +1007,7 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                                         var cellVal = _ticketBookNumbers[ticketIndex][r][c];
                                         String displayText = (cellVal == 0) ? "" : cellVal.toString();
                                         bool isDaubed = _bookDaubedStates[ticketIndex][r][c];
-                                        
+
                                         return GestureDetector(
                                           onTap: () {
                                             if (displayText.isNotEmpty) {
@@ -685,11 +1022,11 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                                               alignment: Alignment.center,
                                               children: [
                                                 Text(
-                                                  displayText, 
+                                                  displayText,
                                                   style: TextStyle(
-                                                    fontWeight: FontWeight.black, 
-                                                    fontSize: 13, 
-                                                    color: isDaubed ? Colors.amber.shade900 : Colors.black87
+                                                    fontWeight: FontWeight.black,
+                                                    fontSize: 13,
+                                                    color: isDaubed ? Colors.amber.shade900 : Colors.black87,
                                                   ),
                                                 ),
                                                 if (isDaubed && displayText.isNotEmpty)
@@ -697,7 +1034,7 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                                                     decoration: BoxDecoration(
                                                       shape: BoxShape.circle,
                                                       color: Colors.amber.withOpacity(0.25),
-                                                      border: Border.all(color: Colors.amber.shade700, width: 1.5)
+                                                      border: Border.all(color: Colors.amber.shade700, width: 1.5),
                                                     ),
                                                     margin: const EdgeInsets.all(2),
                                                   ),
@@ -722,13 +1059,57 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
           ),
         ),
         Container(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-          child: ElevatedButton(
-            onPressed: () => _channel?.sink.add(jsonEncode({'action': 'claim_bingo'})),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green[600], foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 40), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))),
-            child: const Text("CLAIM BINGO!", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          padding: const EdgeInsets.all(8.0),
+          color: Colors.white,
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  const Text("Claim Target: ", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedClaimType,
+                      isDense: true,
+                      decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 4), border: OutlineInputBorder()),
+                      items: const [
+                        DropdownMenuItem(value: "one_line", child: Text("1 Line (5 Numbers)", style: TextStyle(fontSize: 12))),
+                        DropdownMenuItem(value: "two_lines", child: Text("2 Consecutive Lines (10 Numbers)", style: TextStyle(fontSize: 12))),
+                        DropdownMenuItem(value: "full_house", child: Text("Full House (15 Numbers)", style: TextStyle(fontSize: 12))),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setState(() => _selectedClaimType = val);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.check_circle, size: 18),
+                      label: const Text("CLAIM STAGE BINGO!"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[600],
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 38),
+                      ),
+                      onPressed: _claimCurrentStage,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.exit_to_app, color: Colors.redAccent, size: 18),
+                    label: const Text("Quit", style: TextStyle(color: Colors.redAccent)),
+                    onPressed: _confirmQuitGame,
+                  ),
+                ],
+              ),
+            ],
           ),
-        )
+        ),
       ],
     );
   }
@@ -790,18 +1171,11 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                             decoration: const BoxDecoration(
                               color: Colors.greenAccent,
                               shape: BoxShape.circle,
-                              boxShadow: [BoxShadow(color: Colors.greenAccent, blurRadius: 2, spreadRadius: 0.5)]
+                              boxShadow: [BoxShadow(color: Colors.greenAccent, blurRadius: 2, spreadRadius: 0.5)],
                             ),
                           ),
                           const SizedBox(width: 4),
-                          Text(
-                            user,
-                            style: TextStyle(
-                              fontSize: 10, 
-                              fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
-                              color: isMe ? Colors.indigo : Colors.black87
-                            ),
-                          ),
+                          Text(user, style: TextStyle(fontSize: 10, fontWeight: isMe ? FontWeight.bold : FontWeight.normal, color: isMe ? Colors.indigo : Colors.black87)),
                         ],
                       ),
                     );
@@ -819,48 +1193,27 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                 final msg = _chatMessages[index];
                 final isMe = msg['username'] == widget.username;
                 final displayTime = msg['time'] ?? '';
-                
+
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12.0),
                   child: Column(
                     crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 2.0),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (!isMe) ...[
-                              Text(msg['username']!, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w600)),
-                              const SizedBox(width: 6),
-                            ],
-                            Text(displayTime, style: TextStyle(fontSize: 9, color: Colors.grey.shade400, fontWeight: FontWeight.w400)),
-                            if (isMe) ...[
-                              const SizedBox(width: 6),
-                              Text(msg['username']!, style: const TextStyle(fontSize: 10, color: Colors.indigo, fontWeight: FontWeight.bold)),
-                            ],
-                          ],
-                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!isMe) Text(msg['username']!, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w600)),
+                          const SizedBox(width: 4),
+                          Text(displayTime, style: TextStyle(fontSize: 9, color: Colors.grey.shade400)),
+                        ],
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                         decoration: BoxDecoration(
-                          color: isMe ? Colors.indigo[500] : Colors.white,
-                          borderRadius: BorderRadius.only(
-                            topLeft: const Radius.circular(14),
-                            topRight: const Radius.circular(14),
-                            bottomLeft: isMe ? const Radius.circular(14) : const Radius.circular(2),
-                            bottomRight: isMe ? const Radius.circular(2) : const Radius.circular(14),
-                          ),
-                          boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 2))
-                          ],
-                          border: isMe ? null : Border.all(color: Colors.grey.shade300, width: 0.8),
+                          color: isMe ? Colors.indigo[500] : Colors.grey[200],
+                          borderRadius: BorderRadius.circular(8.0),
                         ),
-                        child: Text(
-                          msg['message']!,
-                          style: TextStyle(color: isMe ? Colors.white : Colors.black87, fontSize: 13, height: 1.3),
-                        ),
+                        child: Text(msg['message']!, style: TextStyle(color: isMe ? Colors.white : Colors.black87, fontSize: 12)),
                       ),
                     ],
                   ),
@@ -875,7 +1228,7 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                 Expanded(
                   child: TextField(
                     controller: _chatController,
-                    decoration: const InputDecoration(hintText: 'Type a message...', contentPadding: EdgeInsets.symmetric(horizontal: 8.0), border: OutlineInputBorder()),
+                    decoration: const InputDecoration(hintText: 'Type message...', contentPadding: EdgeInsets.symmetric(horizontal: 8.0), border: OutlineInputBorder()),
                     style: const TextStyle(fontSize: 13),
                     onSubmitted: (_) => _sendChatMessage(),
                   ),
@@ -896,13 +1249,8 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
 enum ConfettiShape { rectangle, square, triangle, circle }
 
 class _ConfettiParticle {
-  double x;
-  double y;
+  double x, y, size, speedY, speedX, rotation;
   Color color;
-  double size;
-  double speedY;
-  double speedX;
-  double rotation;
   ConfettiShape shape;
 
   _ConfettiParticle({
@@ -924,17 +1272,11 @@ class ConfettiPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..style = PaintingStyle.fill;
-    
     for (var p in particles) {
       paint.color = p.color;
       canvas.save();
-      
-      double renderX = (p.x / 400) * size.width;
-      double renderY = p.y;
-      
-      canvas.translate(renderX, renderY);
+      canvas.translate((p.x / 400) * size.width, p.y);
       canvas.rotate(p.rotation);
-      
       switch (p.shape) {
         case ConfettiShape.rectangle:
           canvas.drawRect(Rect.fromLTWH(-p.size / 2, -p.size * 0.75, p.size, p.size * 1.5), paint);
@@ -954,7 +1296,6 @@ class ConfettiPainter extends CustomPainter {
           canvas.drawPath(path, paint);
           break;
       }
-      
       canvas.restore();
     }
   }
