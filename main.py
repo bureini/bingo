@@ -8,6 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 app = FastAPI(title="Authoritative Multi-Room 6-Ticket 90-Ball Backend")
 
+# Initialize global admin passphrase from environment or generate a secure token
 ADMIN_PASSPHRASE = os.getenv("ADMIN_PASSPHRASE", secrets.token_hex(8))
 print(f"[SECURITY INFO] Current Admin Passphrase: {ADMIN_PASSPHRASE}")
 
@@ -62,6 +63,7 @@ class BingoRoom:
         self.loop_task: Optional[asyncio.Task] = None
         self.draw_interval = 4.0
         
+        # Dynamic Room Rules & Pricing Configurations
         self.ticket_price = "Free"
         self.prizes = {
             "one_line": "$10.00",
@@ -121,6 +123,7 @@ class BingoRoom:
 
         return False
 
+# Global Room Registry
 rooms: Dict[str, BingoRoom] = {
     "ROOM101": BingoRoom("ROOM101"),
     "VIP_LOUNGE": BingoRoom("VIP_LOUNGE")
@@ -165,6 +168,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
         "active_users": list(room.players.keys())
     })
     
+    # Auto-starts as soon as 1 player connects
     if len(room.players) >= 1 and not room.game_started:
         room.loop_task = asyncio.create_task(room.start_game_loop())
 
@@ -175,6 +179,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
             action = payload.get("action")
             provided_secret = payload.get("admin_secret")
 
+            # --- ADMIN ACTION ROUTING ---
             if provided_secret == ADMIN_PASSPHRASE:
                 if action == "reset_passphrase":
                     new_pass = payload.get("new_passphrase", "").strip()
@@ -191,7 +196,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                         rooms[new_room_id] = BingoRoom(new_room_id)
                         await websocket.send_text(json.dumps({
                             "event": "admin_success",
-                            "message": f"Room '{new_room_id}' created!"
+                            "message": f"Room '{new_room_id}' created successfully!"
                         }))
 
                 elif action == "delete_room":
@@ -237,6 +242,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                     room.draw_interval = float(max(2, min(new_interval, 15)))
                     await room.broadcast({"event": "room_rules_changed", "message": f"Ball draw speed set to {room.draw_interval}s."})
 
+            # --- STANDARD PLAYER ACTIONS ---
             if action == "claim_bingo" and username != "SystemAdmin" and not room.game_over:
                 claim_type = payload.get("claim_type", "full_house")
                 if room.verify_claim(player.book, claim_type):
