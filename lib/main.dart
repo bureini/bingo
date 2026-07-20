@@ -79,10 +79,10 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                       onLongPress: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => const BingoAdminDashboardPage()),
-                        );
-                      },
-                      child: const Icon(Icons.sports_esports, size: 64, color: Colors.indigo),
+                            MaterialPageRoute(builder: (context) => const BingoAdminDashboardPage()),
+                            );
+                           },
+                           child: const Icon(Icons.sports_esports, size: 64, color: Colors.indigo),
                     ),
                     const SizedBox(height: 16),
                     const Text('My Bingo (6-Tickets)', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
