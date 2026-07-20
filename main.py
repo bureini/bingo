@@ -17,27 +17,20 @@ class Player:
         Generates a complete book of 6 distinct 3x9 tickets.
         Distributes all numbers from 1 to 90 across the 6 tickets without duplicates.
         """
-        # Initialize 6 empty tickets, each 3x9[cite: 1]
         book = [[[0 for _ in range(9)] for _ in range(3)] for _ in range(6)]
         
-        # Distribute numbers 1-90 column by column
         for col in range(9):
             low = 1 if col == 0 else col * 10
             high = 9 if col == 0 else (89 if col == 7 else 90)
             
-            # Pool all available numbers for this specific column across the entire book
             pool = list(range(low, high + 1))
             random.shuffle(pool)
             
-            # Each column across 6 tickets needs 18 numbers total (3 rows * 6 tickets)
-            # Ensure the pool has enough numbers (columns 1-7 have 10, column 0 has 9, column 8 has 11)
-            # We pad the pool with extra valid numbers from the column scope to fill out all slots
             while len(pool) < 18:
                 pool.extend(random.sample(range(low, high + 1), min(18 - len(pool), (high - low + 1))))
             
             random.shuffle(pool)
             
-            # Assign numbers to the column slot for each ticket
             idx = 0
             for t in range(6):
                 column_digits = pool[idx:idx+3]
@@ -46,7 +39,6 @@ class Player:
                     book[t][row][col] = column_digits[row]
                 idx += 3
 
-        # Apply blank spaces: each row in each ticket must have exactly 4 blank spaces (zeros)[cite: 1]
         for t in range(6):
             for row in range(3):
                 clear_indices = random.sample(range(9), 4)
@@ -65,6 +57,7 @@ class BingoRoom:
         self.game_started = False
         self.game_over = False
         self.loop_task: asyncio.Task = None
+        self.draw_interval = 4.0  # Dynamic control tempo variable
 
     async def broadcast(self, message: dict):
         payload = json.dumps(message)
@@ -83,7 +76,7 @@ class BingoRoom:
         await self.broadcast({"event": "game_started", "message": "The 6-Ticket match has begun!"})
         
         while self.available_numbers and not self.game_over:
-            await asyncio.sleep(4.0)
+            await asyncio.sleep(self.draw_interval)
             if self.game_over:
                 break
             num = self.available_numbers.pop()
@@ -95,7 +88,7 @@ class BingoRoom:
             })
 
     def verify_bingo(self, player_book: List[List[List[int]]]) -> bool:
-        """Verifies if at least one of the 6 tickets has achieved a Full House.[cite: 1]"""
+        """Verifies if at least one of the 6 tickets has achieved a Full House."""
         drawn_set = set(self.drawn_numbers) | {0}
         
         for ticket in player_book:
@@ -125,20 +118,36 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
         rooms[room_id] = BingoRoom(room_id)
     room = rooms[room_id]
     
-    player = Player(username, websocket)
-    room.players[username] = player
+    # Authoritative Reconnection Resolution Logic
+    if username in room.players and username != "SystemAdmin":
+        try:
+            await room.players[username].websocket.send_text(json.dumps({
+                "event": "system_disconnect",
+                "message": "You connected from another tab/device. Closing this session."
+            }))
+            await room.players[username].websocket.close(code=4000)
+        except Exception:
+            pass
     
-    await websocket.send_text(json.dumps({
-        "event": "card_assigned",
-        "book": player.book,
-        "username": username,
-        "room_id": room_id
-    }))
+    # Initialization Matrix Routing
+    if username == "SystemAdmin":
+        player = None
+    else:
+        player = Player(username, websocket)
+        room.players[username] = player
+        
+        await websocket.send_text(json.dumps({
+            "event": "card_assigned",
+            "book": player.book,
+            "username": username,
+            "room_id": room_id
+        }))
     
+    # Synchronized State & Presence Updates
     await room.broadcast({
         "event": "player_joined",
         "username": username,
-        "total_players": len(room.players)
+        "active_users": list(room.players.keys())
     })
     
     if len(room.players) >= 2 and not room.game_started:
@@ -150,7 +159,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
             payload = json.loads(data)
             action = payload.get("action")
             
-            if action == "claim_bingo" and not room.game_over:
+            if action == "claim_bingo" and username != "SystemAdmin" and not room.game_over:
                 if room.verify_bingo(player.book):
                     room.game_over = True
                     await room.broadcast({
@@ -163,9 +172,36 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                         "message": "No Full House found on any of your tickets yet!"
                     }))
                     
+            elif action == "send_chat":
+                msg_text = payload.get("message", "").strip()
+                if msg_text:
+                    import time
+                    await room.broadcast({
+                        "event": "chat_received",
+                        "username": username,
+                        "message": msg_text,
+                        "timestamp": int(time.time() * 1000)
+                    })
+                    
+            elif action == "update_room_rules":
+                if payload.get("admin_secret") == "BingoAdmin2026":
+                    new_interval = payload.get("draw_interval", 4)
+                    room.draw_interval = float(max(2, min(new_interval, 15)))
+                    await room.broadcast({
+                        "event": "room_rules_changed",
+                        "message": f"Admin updated ball drawing interval to {room.draw_interval} seconds."
+                    })
+                    
     except WebSocketDisconnect:
         if username in room.players:
             del room.players[username]
+            
+        await room.broadcast({
+            "event": "player_left",
+            "username": username,
+            "active_users": list(room.players.keys())
+        })
+        
         if not room.players:
             if room.loop_task:
                 room.loop_task.cancel()
