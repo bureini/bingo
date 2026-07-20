@@ -8,7 +8,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 app = FastAPI(title="Authoritative Multi-Room 6-Ticket 90-Ball Backend")
 
-# Initialize global admin passphrase from environment or generate a secure token
 ADMIN_PASSPHRASE = os.getenv("ADMIN_PASSPHRASE", secrets.token_hex(8))
 print(f"[SECURITY INFO] Current Admin Passphrase: {ADMIN_PASSPHRASE}")
 
@@ -63,14 +62,13 @@ class BingoRoom:
         self.loop_task: Optional[asyncio.Task] = None
         self.draw_interval = 4.0
         
-        # Dynamic Room Rules & Pricing Configurations
-        self.ticket_price = "Free"  # e.g., "Free", "$5.00", "100 Points"
+        self.ticket_price = "Free"
         self.prizes = {
             "one_line": "$10.00",
             "two_lines": "$25.00",
             "full_house": "$100.00"
         }
-        self.custom_notice = "1 Line = 5 marked, 2 Lines = 10 consecutive marked, Full House = 15 marked."
+        self.custom_notice = "1 Line = 5 marked, 2 Lines = 10 marked, Full House = 15 marked."
 
     async def broadcast(self, message: dict):
         payload = json.dumps(message)
@@ -123,7 +121,6 @@ class BingoRoom:
 
         return False
 
-# Global Room Registry
 rooms: Dict[str, BingoRoom] = {
     "ROOM101": BingoRoom("ROOM101"),
     "VIP_LOUNGE": BingoRoom("VIP_LOUNGE")
@@ -178,7 +175,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
             action = payload.get("action")
             provided_secret = payload.get("admin_secret")
 
-            # --- ADVANCED ADMIN CONTROLS ---
             if provided_secret == ADMIN_PASSPHRASE:
                 if action == "reset_passphrase":
                     new_pass = payload.get("new_passphrase", "").strip()
@@ -186,7 +182,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                         ADMIN_PASSPHRASE = new_pass
                         await websocket.send_text(json.dumps({
                             "event": "admin_success",
-                            "message": f"Passphrase updated successfully to: {ADMIN_PASSPHRASE}"
+                            "message": f"Passphrase updated to: {ADMIN_PASSPHRASE}"
                         }))
 
                 elif action == "create_room":
@@ -195,7 +191,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                         rooms[new_room_id] = BingoRoom(new_room_id)
                         await websocket.send_text(json.dumps({
                             "event": "admin_success",
-                            "message": f"Room '{new_room_id}' created successfully!"
+                            "message": f"Room '{new_room_id}' created!"
                         }))
 
                 elif action == "delete_room":
@@ -204,7 +200,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                         target_room = rooms[target_room_id]
                         await target_room.broadcast({
                             "event": "system_disconnect",
-                            "message": f"Room '{target_room_id}' has been closed by the Admin."
+                            "message": f"Room '{target_room_id}' closed by Admin."
                         })
                         if target_room.loop_task:
                             target_room.loop_task.cancel()
@@ -241,7 +237,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                     room.draw_interval = float(max(2, min(new_interval, 15)))
                     await room.broadcast({"event": "room_rules_changed", "message": f"Ball draw speed set to {room.draw_interval}s."})
 
-            # --- STANDARD PLAYER ACTIONS ---
             if action == "claim_bingo" and username != "SystemAdmin" and not room.game_over:
                 claim_type = payload.get("claim_type", "full_house")
                 if room.verify_claim(player.book, claim_type):
