@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'views/admin_page.dart'; // LINKED ADMIN PAGE COMPONENT
+import 'views/admin_page.dart';
 
 void main() {
   runApp(const BingoApp());
@@ -77,7 +77,6 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
                   children: [
                     GestureDetector(
                       onLongPress: () {
-                        // NAVIGATES TO EXTRACTED admin_page.dart
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (context) => const BingoAdminDashboardPage()),
@@ -136,6 +135,11 @@ class _BingoGamePageState extends State<BingoGamePage> {
   final List<int> _drawnNumbers = [];
   int? _currentDrawnNumber;
   String _gameStatusMessage = "Connecting...";
+  
+  // Chat & Broadcast State
+  final List<Map<String, dynamic>> _chatMessages = [];
+  final TextEditingController _chatController = TextEditingController();
+  String? _activeAnnouncement;
 
   @override
   void initState() {
@@ -167,8 +171,31 @@ class _BingoGamePageState extends State<BingoGamePage> {
               _drawnNumbers.addAll(List<int>.from(data['history']));
             });
             break;
-          case 'room_rules_changed':
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['message'])));
+          case 'chat_message':
+            setState(() {
+              _chatMessages.add({
+                'sender': data['sender'],
+                'message': data['message'],
+                'is_admin': data['is_admin'] ?? false,
+              });
+            });
+            break;
+          case 'system_announcement':
+            setState(() {
+              _activeAnnouncement = data['message'];
+              _chatMessages.add({
+                'sender': '📢 ANNOUNCEMENT',
+                'message': data['message'],
+                'is_admin': true,
+              });
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("📢 [ADMIN]: ${data['message']}"),
+                backgroundColor: Colors.orange[800],
+                duration: const Duration(seconds: 6),
+              ),
+            );
             break;
           case 'game_over':
             setState(() => _gameStatusMessage = data['winner'] != null ? "🏆 Winner: ${data['winner']}!" : "Game Over");
@@ -178,8 +205,20 @@ class _BingoGamePageState extends State<BingoGamePage> {
     } catch (_) {}
   }
 
+  void _sendChatMessage() {
+    final text = _chatController.text.trim();
+    if (text.isNotEmpty) {
+      _channel?.sink.add(jsonEncode({
+        'action': 'send_chat',
+        'message': text,
+      }));
+      _chatController.clear();
+    }
+  }
+
   @override
   void dispose() {
+    _chatController.dispose();
     _channel?.sink.close();
     super.dispose();
   }
@@ -188,11 +227,132 @@ class _BingoGamePageState extends State<BingoGamePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[300],
-      appBar: AppBar(title: const Text('My Bingo Playroom'), backgroundColor: Colors.indigo, foregroundColor: Colors.white, centerTitle: true),
+      appBar: AppBar(
+        title: const Text('My Bingo Playroom'),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+        centerTitle: true,
+        actions: [
+          Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.chat_bubble_outline),
+              onPressed: () => Scaffold.of(context).openEndDrawer(),
+              tooltip: 'Open Chat Feed',
+            ),
+          )
+        ],
+      ),
+      endDrawer: Drawer(
+        child: Column(
+          children: [
+            Container(
+              color: Colors.indigo,
+              padding: const EdgeInsets.fromLTRB(16, 40, 16, 16),
+              width: double.infinity,
+              child: const Row(
+                children: [
+                  Icon(Icons.forum, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text("Live Room Chat", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: _chatMessages.length,
+                itemBuilder: (context, index) {
+                  final msg = _chatMessages[index];
+                  bool isAdmin = msg['is_admin'] == true;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: isAdmin ? Colors.amber[100] : Colors.grey[200],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: isAdmin ? Colors.amber : Colors.grey[300]!),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          msg['sender'],
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: isAdmin ? Colors.orange[900] : Colors.indigo[900],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(msg['message'], style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _chatController,
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message...',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      onSubmitted: (_) => _sendChatMessage(),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.send, color: Colors.indigo),
+                    onPressed: _sendChatMessage,
+                  )
+                ],
+              ),
+            )
+          ],
+        ),
+      ),
       body: Column(
         children: [
-          Container(width: double.infinity, color: Colors.indigo[900], padding: const EdgeInsets.all(4), child: Text(_gameStatusMessage, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 12))),
+          Container(
+            width: double.infinity,
+            color: Colors.indigo[900],
+            padding: const EdgeInsets.all(4),
+            child: Text(
+              _gameStatusMessage,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ),
           
+          if (_activeAnnouncement != null)
+            Container(
+              width: double.infinity,
+              color: Colors.amber[800],
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.campaign, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _activeAnnouncement!,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => setState(() => _activeAnnouncement = null),
+                    child: const Icon(Icons.close, color: Colors.white, size: 18),
+                  )
+                ],
+              ),
+            ),
+
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
             child: Card(
@@ -206,7 +366,14 @@ class _BingoGamePageState extends State<BingoGamePage> {
                     Row(
                       children: [
                         const Text('BALL: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
-                        CircleAvatar(radius: 14, backgroundColor: Colors.amber[700], child: Text(_currentDrawnNumber != null ? '$_currentDrawnNumber' : '--', style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold))),
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundColor: Colors.amber[700],
+                          child: Text(
+                            _currentDrawnNumber != null ? '$_currentDrawnNumber' : '--',
+                            style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
                       ],
                     ),
                     Text("Drawn: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))
@@ -268,7 +435,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                                   decoration: BoxDecoration(
                                                     shape: BoxShape.circle,
                                                     color: Colors.blue.withOpacity(0.4),
-                                                    border: Border.all(color: Colors.blueAccent, width: 0.8)
+                                                    border: Border.all(color: Colors.blueAccent, width: 0.8),
                                                   ),
                                                   margin: const EdgeInsets.all(1),
                                                 ),
@@ -295,7 +462,12 @@ class _BingoGamePageState extends State<BingoGamePage> {
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
             child: ElevatedButton(
               onPressed: () => _channel?.sink.add(jsonEncode({'action': 'claim_bingo'})),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green[600], foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 40), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green[600],
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 40),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              ),
               child: const Text("CLAIM BINGO!", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
             ),
           )
