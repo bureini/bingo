@@ -116,7 +116,6 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
   }
 }
 
-// --- ENHANCED ADMIN DASHBOARD PAGE ---
 class BingoAdminDashboardPage extends StatefulWidget {
   const BingoAdminDashboardPage({super.key});
 
@@ -133,11 +132,10 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
   final _roomTargetController = TextEditingController(text: "ROOM101");
   final _newRoomController = TextEditingController();
   
-  // Rule & Pricing Controls
   final _ticketPriceController = TextEditingController(text: "Free");
-  final _prize1LineController = TextEditingController(text: "$10.00");
-  final _prize2LinesController = TextEditingController(text: "$25.00");
-  final _prizeFullHouseController = TextEditingController(text: "$100.00");
+  final _prize1LineController = TextEditingController(text: r"$10.00");
+  final _prize2LinesController = TextEditingController(text: r"$25.00");
+  final _prizeFullHouseController = TextEditingController(text: r"$100.00");
   final _rulesNoticeController = TextEditingController(text: "1 Line = 5 marked, 2 Lines = 10 marked, Full House = 15 marked.");
 
   int _drawIntervalSeconds = 4;
@@ -325,7 +323,6 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. SECURITY & PASSPHRASE RESET
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -354,10 +351,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // 2. ROOM CREATION & MANAGEMENT
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -371,7 +365,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
                             Expanded(
                               child: TextField(
                                 controller: _newRoomController,
-                                decoration: const InputDecoration(labelText: 'New Room Code (e.g. VIP_2)', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                                decoration: const InputDecoration(labelText: r'New Room Code (e.g. VIP_2)', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -411,10 +405,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // 3. CONNECTED PARTICIPANTS
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -422,7 +413,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.between,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text("Connected Participants", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
                             Chip(label: Text("${_connectedParticipants.length} Connected"), backgroundColor: Colors.indigo.shade50),
@@ -442,10 +433,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // 4. DEFINE RULES, PRICING & PRIZES
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -459,7 +447,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
                             Expanded(
                               child: TextField(
                                 controller: _ticketPriceController,
-                                decoration: const InputDecoration(labelText: 'Ticket Cost (Free, $5, etc)', border: OutlineInputBorder()),
+                                decoration: const InputDecoration(labelText: r'Ticket Cost (Free, $5, etc)', border: OutlineInputBorder()),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -506,10 +494,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // 5. DRAW SPEED TEMPO
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -542,7 +527,6 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> {
   }
 }
 
-// --- MAIN GAME VIEW ---
 class BingoGamePage extends StatefulWidget {
   final String roomId;
   final String username;
@@ -568,7 +552,6 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
 
   String _selectedClaimType = "one_line";
   String _ticketPrice = "Free";
-  String _rulesNotice = "";
 
   AnimationController? _victoryController;
   bool _showVictoryOverlay = false;
@@ -610,7 +593,6 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                 _bookDaubedStates = List.generate(6, (_) => List.generate(3, (_) => List.filled(9, false)));
                 _gameStatusMessage = "Room Connected: ${data['room_id']}";
                 _ticketPrice = data['ticket_price'] ?? "Free";
-                _rulesNotice = data['rules_notice'] ?? "";
                 _isChannelConnected = true;
               });
               break;
@@ -885,7 +867,7 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                           children: [
                             const Icon(Icons.emoji_events, size: 72, color: Colors.amber),
                             const SizedBox(height: 12),
-                            const Text('BINGO!', style: TextStyle(fontSize: 32, fontWeight: FontWeight.black, color: Colors.indigo)),
+                            const Text('BINGO!', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.indigo)),
                             const Text('Claim Verified!', style: TextStyle(fontSize: 12, color: Colors.grey)),
                             const SizedBox(height: 16),
                             ElevatedButton(
@@ -1024,7 +1006,7 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
                                                 Text(
                                                   displayText,
                                                   style: TextStyle(
-                                                    fontWeight: FontWeight.black,
+                                                    fontWeight: FontWeight.w900,
                                                     fontSize: 13,
                                                     color: isDaubed ? Colors.amber.shade900 : Colors.black87,
                                                   ),
@@ -1127,13 +1109,13 @@ class _BingoGamePageState extends State<BingoGamePage> with SingleTickerProvider
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Ball Pool Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo)),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(color: Colors.indigo.shade700, borderRadius: BorderRadius.circular(4)),
-                      child: Text('${90 - _drawnNumbers.length} LEFT', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.black, color: Colors.white)),
+                      child: Text('${90 - _drawnNumbers.length} LEFT', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white)),
                     ),
                   ],
                 ),
