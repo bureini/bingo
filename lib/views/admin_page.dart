@@ -21,10 +21,12 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
   final _announcementController = TextEditingController();
   WebSocketChannel? _adminChannel;
 
-  // Real-time Room State Tracking
+  // Real-time Room State & Player List Tracking
   bool _isConnected = false;
   bool _isGamePaused = false;
   String _lastServerEvent = "Disconnected";
+  List<Map<String, dynamic>> _onlinePlayers = [];
+  int _totalOnlineCount = 0;
 
   // Room Form Parameters
   String _selectedCardType = "UK 90-Ball (3x9)";
@@ -41,7 +43,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _generatedPassphrase = _generatePassphrase();
   }
 
@@ -84,6 +86,12 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
             _lastServerEvent = data['event'] ?? 'message_received';
             if (data['event'] == 'game_paused') _isGamePaused = true;
             if (data['event'] == 'game_resumed') _isGamePaused = false;
+            
+            // Parse Online Players Stream
+            if (data['event'] == 'player_list_update') {
+              _totalOnlineCount = data['total_online'] ?? 0;
+              _onlinePlayers = List<Map<String, dynamic>>.from(data['players'] ?? []);
+            }
           });
         },
         onError: (err) {
@@ -101,7 +109,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
   void _sendAdminAction(String action, [Map<String, dynamic>? extraData]) {
     if (!_isConnected || _adminChannel == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Admin Socket is not connected to a room!"), backgroundColor: Colors.red),
+        const SnackBar(content: Text("Admin Socket is not connected!"), backgroundColor: Colors.red),
       );
       return;
     }
@@ -115,14 +123,6 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
     };
 
     _adminChannel?.sink.add(jsonEncode(payload));
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("Command '$action' sent to $targetRoom"),
-        backgroundColor: const Color(0xFF10B981),
-        duration: const Duration(seconds: 2),
-      ),
-    );
   }
 
   void _togglePauseGame() {
@@ -142,7 +142,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
         backgroundColor: const Color(0xFF151D2A),
         title: const Text("Confirm Match Reset", style: TextStyle(color: Colors.white)),
         content: const Text(
-          "This action will clear all drawn numbers, reset all player daubs, and start a fresh round. Continue?",
+          "This will reset all drawn numbers and assign new books to active players. Proceed?",
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -259,14 +259,22 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
         foregroundColor: Colors.white,
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
           indicatorColor: accentIndigo,
           labelColor: accentIndigo,
           unselectedLabelColor: Colors.grey,
-          tabs: const [
-            Tab(icon: Icon(Icons.play_circle_filled), text: "Live Control"),
-            Tab(icon: Icon(Icons.meeting_room), text: "Room Rules"),
-            Tab(icon: Icon(Icons.grid_on), text: "Pattern Studio"),
-            Tab(icon: Icon(Icons.campaign), text: "Broadcaster"),
+          tabs: [
+            const Tab(icon: Icon(Icons.play_circle_filled), text: "Live Control"),
+            Tab(
+              icon: Badge(
+                label: Text("$_totalOnlineCount"),
+                child: const Icon(Icons.people),
+              ),
+              text: "Active Players",
+            ),
+            const Tab(icon: Icon(Icons.meeting_room), text: "Room Rules"),
+            const Tab(icon: Icon(Icons.grid_on), text: "Pattern Studio"),
+            const Tab(icon: Icon(Icons.campaign), text: "Broadcaster"),
           ],
         ),
       ),
@@ -274,6 +282,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
         controller: _tabController,
         children: [
           _buildLiveControlTab(bgCard, accentIndigo),
+          _buildActivePlayersTab(bgCard, accentIndigo),
           _buildRoomsTab(bgCard, accentIndigo),
           _buildRulesTab(bgCard, accentIndigo),
           _buildChatModTab(bgCard, accentIndigo),
@@ -288,7 +297,6 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Connection & Status Banner
           Card(
             color: bgCard,
             child: Padding(
@@ -309,7 +317,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                         Text(
-                          "Last Event: $_lastServerEvent",
+                          "Status: $_lastServerEvent",
                           style: const TextStyle(color: Colors.grey, fontSize: 12),
                         ),
                       ],
@@ -325,8 +333,6 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
             ),
           ),
           const SizedBox(height: 16),
-
-          // Pause / Resume / Reset Action Grid
           Card(
             color: bgCard,
             child: Padding(
@@ -370,6 +376,83 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildActivePlayersTab(Color bgCard, Color accent) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Card(
+        color: bgCard,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "Connected Room Players",
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  Chip(
+                    avatar: const Icon(Icons.circle, color: Colors.greenAccent, size: 12),
+                    label: Text("Online: $_totalOnlineCount", style: const TextStyle(color: Colors.white)),
+                    backgroundColor: const Color(0xFF233044),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: _onlinePlayers.isEmpty
+                    ? const Center(
+                        child: Text(
+                          "No active players currently in this room.",
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: _onlinePlayers.length,
+                        separatorBuilder: (_, __) => const Divider(color: Color(0xFF233044)),
+                        itemBuilder: (context, idx) {
+                          final p = _onlinePlayers[idx];
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: accent,
+                              child: Text(
+                                (p['username'] as String).substring(0, 1).toUpperCase(),
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            title: Text(
+                              p['username'] ?? "Unknown",
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Text(
+                              "Joined at: ${p['joined_at'] ?? 'N/A'}",
+                              style: const TextStyle(color: Colors.grey, fontSize: 12),
+                            ),
+                            trailing: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.2),
+                                border: Border.all(color: Colors.greenAccent),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text(
+                                "6 Tickets Active",
+                                style: TextStyle(color: Colors.greenAccent, fontSize: 11),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              )
+            ],
+          ),
+        ),
       ),
     );
   }
