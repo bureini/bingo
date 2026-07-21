@@ -16,12 +16,12 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
   final _passwordController = TextEditingController();
   TabController? _tabController;
 
-  // Real-time Controls
+  // Real-time WebSocket Controls
   final _roomTargetController = TextEditingController(text: "ROOM101");
   final _announcementController = TextEditingController();
   WebSocketChannel? _adminChannel;
 
-  // Room Form Parameters
+  // Room Parameters & State
   String _selectedCardType = "UK 90-Ball (3x9)";
   String _winningPattern = "Full House";
   int _drawIntervalSeconds = 4;
@@ -30,8 +30,15 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
   double _priceFullHouse = 100.0;
   String _generatedPassphrase = "";
 
-  // Pattern Designer State
-  final List<bool> _usPatternGrid = List.generate(25, (i) => i == 12);
+  // Live Room Stats (Received via WebSocket)
+  int _activePlayerCount = 0;
+  List<String> _connectedPlayers = [];
+  List<int> _callHistory = [];
+  bool _isGamePaused = false;
+  final List<Map<String, dynamic>> _winnerLogs = [];
+
+  // Interactive Pattern Grid (5x5 for US / Custom Patterns)
+  final List<bool> _customPatternGrid = List.generate(25, (i) => i == 12);
 
   @override
   void initState() {
@@ -62,35 +69,55 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
 
   void _connectAdminSocket() {
     final targetRoom = _roomTargetController.text.trim().toUpperCase();
-    final adminUrl = 'wss://bingo-multiplayer-backend.onrender.com/ws/$targetRoom/SystemAdmin';
+    final adminUrl = 'wss://bingo-multiplayer-backend.onrender.com/ws/$targetRoom/MasterAdmin';
     try {
+      _adminChannel?.sink.close();
       _adminChannel = WebSocketChannel.connect(Uri.parse(adminUrl));
+      _adminChannel!.stream.listen((message) {
+        final data = jsonDecode(message);
+        _handleAdminSocketEvents(data);
+      }, onError: (_) {}, onDone: () {});
     } catch (_) {}
   }
 
-  void _broadcastGlobalRulesUpdate() {
-    final targetRoom = _roomTargetController.text.trim().toUpperCase();
-    final payload = {
-      'action': 'update_room_rules',
-      'admin_secret': 'BingoAdmin2026',
-      'target_room': targetRoom,
-      'card_type': _selectedCardType,
-      'winning_pattern': _winningPattern,
-      'draw_interval': _drawIntervalSeconds,
-      'price_1line': _price1Line,
-      'price_2lines': _price2Lines,
-      'price_fullhouse': _priceFullHouse,
-      'passphrase': _generatedPassphrase,
-    };
+  void _handleAdminSocketEvents(Map<String, dynamic> data) {
+    setState(() {
+      switch (data['event']) {
+        case 'player_joined':
+          _activePlayerCount = data['total_players'] ?? (_activePlayerCount + 1);
+          if (data['username'] != null && !_connectedPlayers.contains(data['username'])) {
+            _connectedPlayers.add(data['username']);
+          }
+          break;
+        case 'number_drawn':
+          if (data['number'] != null) {
+            _callHistory.insert(0, data['number']);
+          }
+          break;
+        case 'game_over':
+          if (data['winner'] != null) {
+            _winnerLogs.insert(0, {
+              'player': data['winner'],
+              'format': _selectedCardType,
+              'room': _roomTargetController.text,
+              'prize': '\$${_priceFullHouse.toStringAsFixed(2)}',
+              'time': DateTime.now().toIso8601String().substring(11, 16),
+            });
+          }
+          break;
+      }
+    });
+  }
 
+  void _sendAdminAction(String action, Map<String, dynamic> payload) {
+    final fullPayload = {
+      'action': action,
+      'admin_secret': 'BingoAdmin2026',
+      'target_room': _roomTargetController.text.trim().toUpperCase(),
+      ...payload
+    };
     try {
-      _adminChannel?.sink.add(jsonEncode(payload));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Rules & Prize Pools pushed to $targetRoom"),
-          backgroundColor: const Color(0xFF10B981),
-        ),
-      );
+      _adminChannel?.sink.add(jsonEncode(fullPayload));
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Failed to send command: $e"), backgroundColor: Colors.red),
@@ -98,23 +125,53 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
     }
   }
 
+  void _broadcastGlobalRulesUpdate() {
+    _sendAdminAction('update_room_rules', {
+      'card_type': _selectedCardType,
+      'winning_pattern': _winningPattern,
+      'draw_interval': _drawIntervalSeconds,
+      'price_1line': _price1Line,
+      'price_2lines': _price2Lines,
+      'price_fullhouse': _priceFullHouse,
+      'passphrase': _generatedPassphrase,
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Rules & Prize Pools pushed to ${_roomTargetController.text.toUpperCase()}"),
+        backgroundColor: const Color(0xFF10B981),
+      ),
+    );
+  }
+
   void _sendSystemAnnouncement() {
     if (_announcementController.text.trim().isEmpty) return;
-
-    final payload = {
-      'action': 'system_announcement',
-      'admin_secret': 'BingoAdmin2026',
+    _sendAdminAction('system_announcement', {
       'message': _announcementController.text.trim(),
-    };
-
-    _adminChannel?.sink.add(jsonEncode(payload));
+    });
     _announcementController.clear();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Announcement broadcasted to target room."),
+        content: Text("Announcement broadcasted successfully."),
         backgroundColor: Color(0xFF6366F1),
       ),
     );
+  }
+
+  void _kickPlayer(String username) {
+    _sendAdminAction('kick_player', {'player_to_kick': username});
+    setState(() => _connectedPlayers.remove(username));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Kicked $username from room.")),
+    );
+  }
+
+  void _togglePauseGame() {
+    setState(() => _isGamePaused = !_isGamePaused);
+    _sendAdminAction(_isGamePaused ? 'pause_game' : 'resume_game', {});
+  }
+
+  void _forceDrawNextBall() {
+    _sendAdminAction('force_draw', {});
   }
 
   @override
@@ -165,6 +222,7 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
                         enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF233044))),
                         focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: accentIndigo)),
                       ),
+                      onSubmitted: (_) => _verifyAdminAccess(),
                     ),
                     const SizedBox(height: 20),
                     ElevatedButton(
@@ -223,16 +281,17 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _statCard("Active Players", "2,841", Colors.white, bgCard),
+              _statCard("Active Room Players", "$_activePlayerCount", Colors.white, bgCard),
               const SizedBox(width: 12),
-              _statCard("US Rooms", "5 Active", accent, bgCard),
+              _statCard("Target Room", _roomTargetController.text, accent, bgCard),
               const SizedBox(width: 12),
-              _statCard("UK Rooms", "4 Active", Colors.amber, bgCard),
+              _statCard("Total Balls Drawn", "${_callHistory.length}", Colors.amber, bgCard),
               const SizedBox(width: 12),
-              _statCard("Revenue", "\$8,910", const Color(0xFF10B981), bgCard),
+              _statCard("Est. Prize Pool", "\$${(_price1Line + _price2Lines + _priceFullHouse).toStringAsFixed(0)}", const Color(0xFF10B981), bgCard),
             ],
           ),
           const SizedBox(height: 16),
@@ -243,30 +302,64 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("Recent Winners Log", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Text("Quick Action Game Controls", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
-                  DataTable(
-                    columns: const [
-                      DataColumn(label: Text("Player", style: TextStyle(color: Colors.grey))),
-                      DataColumn(label: Text("Format", style: TextStyle(color: Colors.grey))),
-                      DataColumn(label: Text("Room", style: TextStyle(color: Colors.grey))),
-                      DataColumn(label: Text("Prize Won", style: TextStyle(color: Colors.grey))),
+                  Row(
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _togglePauseGame,
+                        icon: Icon(_isGamePaused ? Icons.play_arrow : Icons.pause),
+                        label: Text(_isGamePaused ? "Resume Draw" : "Pause Draw"),
+                        style: ElevatedButton.styleFrom(backgroundColor: _isGamePaused ? Colors.green : Colors.orange[800], foregroundColor: Colors.white),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton.icon(
+                        onPressed: _forceDrawNextBall,
+                        icon: const Icon(Icons.skip_next),
+                        label: const Text("Force Next Ball"),
+                        style: ElevatedButton.styleFrom(backgroundColor: accent, foregroundColor: Colors.white),
+                      ),
                     ],
-                    rows: const [
-                      DataRow(cells: [
-                        DataCell(Text("JohnDoe99", style: TextStyle(color: Colors.white))),
-                        DataCell(Text("US 75-Ball", style: TextStyle(color: Colors.indigoAccent))),
-                        DataCell(Text("Liberty Bell 75", style: TextStyle(color: Colors.white70))),
-                        DataCell(Text("\$35.00 (2 Lines)", style: TextStyle(color: Color(0xFF10B981)))),
-                      ]),
-                      DataRow(cells: [
-                        DataCell(Text("Emma_UK", style: TextStyle(color: Colors.white))),
-                        DataCell(Text("UK 90-Ball", style: TextStyle(color: Colors.amber))),
-                        DataCell(Text("Royal Crown UK 90", style: TextStyle(color: Colors.white70))),
-                        DataCell(Text("\$350.00 (Full House)", style: TextStyle(color: Color(0xFF10B981)))),
-                      ]),
-                    ],
-                  )
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            color: bgCard,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Live Winners Log", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  _winnerLogs.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: Text("No winners logged for this session yet.", style: TextStyle(color: Colors.grey)),
+                        )
+                      : DataTable(
+                          columns: const [
+                            DataColumn(label: Text("Player", style: TextStyle(color: Colors.grey))),
+                            DataColumn(label: Text("Format", style: TextStyle(color: Colors.grey))),
+                            DataColumn(label: Text("Room", style: TextStyle(color: Colors.grey))),
+                            DataColumn(label: Text("Prize Won", style: TextStyle(color: Colors.grey))),
+                            DataColumn(label: Text("Time", style: TextStyle(color: Colors.grey))),
+                          ],
+                          rows: _winnerLogs
+                              .map(
+                                (log) => DataRow(cells: [
+                                  DataCell(Text(log['player'] ?? '', style: const TextStyle(color: Colors.white))),
+                                  DataCell(Text(log['format'] ?? '', style: const TextStyle(color: Colors.indigoAccent))),
+                                  DataCell(Text(log['room'] ?? '', style: const TextStyle(color: Colors.white70))),
+                                  DataCell(Text(log['prize'] ?? '', style: const TextStyle(color: Color(0xFF10B981)))),
+                                  DataCell(Text(log['time'] ?? '', style: const TextStyle(color: Colors.grey))),
+                                ]),
+                              )
+                              .toList(),
+                        ),
                 ],
               ),
             ),
@@ -432,33 +525,48 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("US 75-Ball 5x5 Pattern Grid Designer", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  const Text("Winning Pattern Configuration", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 5, crossAxisSpacing: 4, mainAxisSpacing: 4),
-                    itemCount: 25,
-                    itemBuilder: (context, idx) {
-                      bool isFree = idx == 12;
-                      bool isSelected = _usPatternGrid[idx];
-                      return GestureDetector(
-                        onTap: isFree ? null : () => setState(() => _usPatternGrid[idx] = !_usPatternGrid[idx]),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isFree ? Colors.amber : (isSelected ? accent : Colors.black26),
-                            border: Border.all(color: Colors.grey.shade800),
-                            borderRadius: BorderRadius.circular(4),
+                  DropdownButtonFormField<String>(
+                    value: _winningPattern,
+                    dropdownColor: bgCard,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: "Active Win Rule", labelStyle: TextStyle(color: Colors.grey)),
+                    items: ["Full House", "Single Line", "Two Lines", "Custom Pattern Grid"]
+                        .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                        .toList(),
+                    onChanged: (val) => setState(() => _winningPattern = val!),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_winningPattern == "Custom Pattern Grid") ...[
+                    const Text("Custom 5x5 Grid Designer", style: TextStyle(color: Colors.white, fontSize: 13)),
+                    const SizedBox(height: 8),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 5, crossAxisSpacing: 4, mainAxisSpacing: 4),
+                      itemCount: 25,
+                      itemBuilder: (context, idx) {
+                        bool isFree = idx == 12;
+                        bool isSelected = _customPatternGrid[idx];
+                        return GestureDetector(
+                          onTap: isFree ? null : () => setState(() => _customPatternGrid[idx] = !_customPatternGrid[idx]),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isFree ? Colors.amber : (isSelected ? accent : Colors.black26),
+                              border: Border.all(color: Colors.grey.shade800),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              isFree ? "FREE" : "${idx + 1}",
+                              style: TextStyle(color: isFree ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                            ),
                           ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            isFree ? "FREE" : "${idx + 1}",
-                            style: TextStyle(color: isFree ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      );
-                    },
-                  )
+                        );
+                      },
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -475,11 +583,11 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: const [
-            Icon(Icons.style, size: 48, color: Colors.indigoAccent),
+            Icon(Icons.style, size: 56, color: Colors.indigoAccent),
             SizedBox(height: 12),
-            Text("UK 90-Ball 6-Ticket Book Layout", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            Text("UK 90-Ball 6-Ticket Sheet Generator", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
             SizedBox(height: 8),
-            Text("Auto-generated 3x9 tickets containing all numbers 1-90 without duplicates.", style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Text("Automatically creates 6 contiguous 3x9 tickets containing numbers 1-90 without duplicates.", style: TextStyle(color: Colors.grey, fontSize: 12), textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -489,42 +597,77 @@ class _BingoAdminDashboardPageState extends State<BingoAdminDashboardPage> with 
   Widget _buildChatModTab(Color bgCard, Color accent) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          Card(
-            color: bgCard,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text("Global System Announcement Broadcaster", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _announcementController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Broadcast Message',
-                      labelStyle: TextStyle(color: Colors.grey),
-                      enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF233044))),
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            Card(
+              color: bgCard,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Global System Announcement Broadcaster", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _announcementController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        labelText: 'Broadcast Message',
+                        labelStyle: TextStyle(color: Colors.grey),
+                        enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF233044))),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton.icon(
-                    onPressed: _sendSystemAnnouncement,
-                    icon: const Icon(Icons.campaign),
-                    label: const Text("Send Broadcast Notice"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange[800],
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 44),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: _sendSystemAnnouncement,
+                      icon: const Icon(Icons.campaign),
+                      label: const Text("Send Broadcast Notice"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange[800],
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 44),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          )
-        ],
+            const SizedBox(height: 16),
+            Card(
+              color: bgCard,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Connected Room Players", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
+                    _connectedPlayers.isEmpty
+                        ? const Text("No active players connected in room state.", style: TextStyle(color: Colors.grey, fontSize: 12))
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _connectedPlayers.length,
+                            itemBuilder: (context, idx) {
+                              final p = _connectedPlayers[idx];
+                              return ListTile(
+                                dense: true,
+                                title: Text(p, style: const TextStyle(color: Colors.white)),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.person_remove, color: Colors.redAccent, size: 20),
+                                  onPressed: () => _kickPlayer(p),
+                                  tooltip: "Kick Player",
+                                ),
+                              );
+                            },
+                          ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
