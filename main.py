@@ -1,21 +1,23 @@
 import asyncio
 import json
 import random
+import time
 from typing import Dict, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-app = FastAPI(title="Authoritative Bingo Engine with Chat & Announcement Support")
+app = FastAPI(title="Authoritative Bingo Engine with Active Player Tracking")
 
 class Player:
     def __init__(self, username: str, websocket: WebSocket):
         self.username = username
         self.websocket = websocket
+        self.joined_at = time.strftime("%H:%M:%S")
         self.book = self.generate_six_ticket_book()
 
     def generate_six_ticket_book(self) -> List[List[List[int]]]:
         """
         Generates a complete book of 6 distinct 3x9 tickets.
-        Distributes all numbers from 1 to 90 across the 6 tickets without duplicates.
+        Distributes numbers 1 to 90 across the 6 tickets without duplicates.
         """
         book = [[[0 for _ in range(9)] for _ in range(3)] for _ in range(6)]
         
@@ -55,13 +57,14 @@ class BingoRoom:
         self.available_numbers: List[int] = list(range(1, 91))
         random.shuffle(self.available_numbers)
         self.game_started = False
+        self.game_paused = False
         self.game_over = False
         self.loop_task: asyncio.Task = None
 
     async def broadcast(self, message: dict):
         payload = json.dumps(message)
         disconnected = []
-        for username, player in self.players.items():
+        for username, player in list(self.players.items()):
             try:
                 await player.websocket.send_text(payload)
             except Exception:
@@ -69,15 +72,37 @@ class BingoRoom:
         for username in disconnected:
             if username in self.players:
                 del self.players[username]
+        if disconnected:
+            await self.broadcast_player_list()
+
+    async def broadcast_player_list(self):
+        player_list = [
+            {
+                "username": p.username,
+                "joined_at": p.joined_at,
+                "tickets": 6,
+                "status": "Active"
+            }
+            for p in self.players.values()
+        ]
+        await self.broadcast({
+            "event": "player_list_update",
+            "total_online": len(self.players),
+            "players": player_list
+        })
 
     async def start_game_loop(self):
         self.game_started = True
-        await self.broadcast({"event": "game_started", "message": "The 6-Ticket match has begun!"})
+        await self.broadcast({"event": "game_started", "message": "The match has begun!"})
         
         while self.available_numbers and not self.game_over:
             await asyncio.sleep(4.0)
             if self.game_over:
                 break
+            
+            if self.game_paused:
+                continue
+
             num = self.available_numbers.pop()
             self.drawn_numbers.append(num)
             await self.broadcast({
@@ -107,7 +132,7 @@ rooms: Dict[str, BingoRoom] = {}
 
 @app.get("/")
 def health_check():
-    return {"status": "healthy", "game": "90-Ball 6-Ticket Engine Active with Chat Relay"}
+    return {"status": "healthy", "game": "Authoritative 90-Ball Engine"}
 
 @app.websocket("/ws/{room_id}/{username}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
@@ -126,12 +151,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
         "room_id": room_id
     }))
     
-    await room.broadcast({
-        "event": "player_joined",
-        "username": username,
-        "total_players": len(room.players)
-    })
-    
+    await room.broadcast_player_list()
+
     if len(room.players) >= 2 and not room.game_started:
         room.loop_task = asyncio.create_task(room.start_game_loop())
 
@@ -141,8 +162,33 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
             payload = json.loads(data)
             action = payload.get("action")
             
-            # --- CHAT & BROADCAST HANDLERS ---
-            if action == "send_chat":
+            if action == "pause_game":
+                room.game_paused = True
+                await room.broadcast({"event": "game_paused", "message": "Match paused by admin."})
+
+            elif action == "resume_game":
+                room.game_paused = False
+                await room.broadcast({"event": "game_resumed", "message": "Match resumed!"})
+
+            elif action == "reset_game":
+                room.drawn_numbers.clear()
+                room.available_numbers = list(range(1, 91))
+                random.shuffle(room.available_numbers)
+                room.game_paused = False
+                room.game_over = False
+                
+                for p in room.players.values():
+                    p.book = p.generate_six_ticket_book()
+                    await p.websocket.send_text(json.dumps({
+                        "event": "card_assigned",
+                        "book": p.book,
+                        "username": p.username,
+                        "room_id": room.room_id
+                    }))
+
+                await room.broadcast({"event": "game_reset", "message": "Game reset."})
+
+            elif action == "send_chat":
                 chat_msg = payload.get("message", "").strip()
                 if chat_msg:
                     await room.broadcast({
@@ -171,12 +217,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                 else:
                     await websocket.send_text(json.dumps({
                         "event": "invalid_claim",
-                        "message": "No Full House found on any of your tickets yet!"
+                        "message": "No Full House found on your cards yet!"
                     }))
                     
     except WebSocketDisconnect:
         if username in room.players:
             del room.players[username]
+        await room.broadcast_player_list()
         if not room.players:
             if room.loop_task:
                 room.loop_task.cancel()
