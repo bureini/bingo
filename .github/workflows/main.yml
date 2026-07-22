@@ -3,7 +3,7 @@ name: Auto-Generate and Deploy Flutter Project
 on:
   push:
     branches:
-      - main
+      - AdminEnhance-branch
 
 permissions:
   contents: write
