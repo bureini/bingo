@@ -1,4 +1,4 @@
-name: Auto-Generate and Deploy Flutter Project
+name: Testing Before Merging
 
 on:
   push:
