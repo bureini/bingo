@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - AdminEnhance-branch
-
+      - testing-branch
+      
 permissions:
   contents: write
   pages: write
@@ -70,6 +71,6 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./build/web
-          publish_branch: gh-pages
+          publish_branch: testing-branch
           force_orphan: true
           
