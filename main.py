@@ -1,7 +1,7 @@
 import asyncio
 import json
 import random
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 app = FastAPI(title="Authoritative Bingo Engine with Claim Verification")
@@ -16,22 +16,34 @@ class Player:
         """
         Generates a 6-ticket strip where all numbers 1-90 appear EXACTLY ONCE.
         Guarantees zero duplicate numbers across the entire 6-ticket book.
+        Column ranges:
+          Col 0: 1-9   (9 numbers)
+          Col 1: 10-19 (10 numbers)
+          Col 2: 20-29 (10 numbers)
+          Col 3: 30-39 (10 numbers)
+          Col 4: 40-49 (10 numbers)
+          Col 5: 50-59 (10 numbers)
+          Col 6: 60-69 (10 numbers)
+          Col 7: 70-79 (10 numbers)
+          Col 8: 80-90 (11 numbers) -> range(80, 91)
         """
         while True:
+            # 1. Prepare exact global number pools (Total: 90 unique numbers)
             col_pools = {
-                0: list(range(1, 10)),      # 1-9
-                1: list(range(10, 20)),    # 10-19
-                2: list(range(20, 30)),    # 20-29
-                3: list(range(30, 40)),    # 30-39
-                4: list(range(40, 50)),    # 40-49
-                5: list(range(50, 60)),    # 50-59
-                6: list(range(60, 70)),    # 60-69
-                7: list(range(70, 80)),    # 70-79
-                8: list(range(80, 91)),    # 80-90 inclusive
+                0: list(range(1, 10)),      # 1 to 9
+                1: list(range(10, 20)),    # 10 to 19
+                2: list(range(20, 30)),    # 20 to 29
+                3: list(range(30, 40)),    # 30 to 39
+                4: list(range(40, 50)),    # 40 to 49
+                5: list(range(50, 60)),    # 50 to 59
+                6: list(range(60, 70)),    # 60 to 69
+                7: list(range(70, 80)),    # 70 to 79
+                8: list(range(80, 91)),    # 80 to 90 inclusive
             }
             for c in range(9):
                 random.shuffle(col_pools[c])
 
+            # 2. Determine exact count of numbers per ticket for each column
             ticket_col_counts = [[0 for _ in range(9)] for _ in range(6)]
             for c in range(9):
                 total_in_col = len(col_pools[c])
@@ -44,9 +56,11 @@ class Player:
                 for t in range(6):
                     ticket_col_counts[t][c] = counts[t]
 
+            # Verify each ticket gets exactly 15 numbers total
             if any(sum(ticket_col_counts[t]) != 15 for t in range(6)):
                 continue
 
+            # 3. Assign numbers to ticket grid matrices
             book = [[[0 for _ in range(9)] for _ in range(3)] for _ in range(6)]
             success = True
 
@@ -77,6 +91,7 @@ class Player:
             if not success:
                 continue
 
+            # 4. Sort column numbers vertically in ascending order per ticket
             for t in range(6):
                 for c in range(9):
                     vals = [book[t][r][c] for r in range(3) if book[t][r][c] != 0]
@@ -128,10 +143,10 @@ class BingoRoom:
                 "history": self.drawn_numbers
             })
 
-    def verify_bingo(self, player_book: List[List[List[int]]]) -> (bool, str):
+    def verify_bingo(self, player_book: List[List[List[int]]]) -> Tuple[bool, str]:
         """
-        Verifies whether any ticket has achieved a 1 Line, 2 Lines, or Full House.
-        Returns tuple: (is_valid, pattern_type)
+        Verifies whether any ticket has completed 1 Line, 2 Lines, or Full House.
+        Returns: (is_valid, win_pattern_description)
         """
         drawn_set = set(self.drawn_numbers)
         
