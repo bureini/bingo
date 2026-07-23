@@ -151,58 +151,104 @@ class _BingoGamePageState extends State<BingoGamePage> {
     final wsUrl = 'wss://bingo-multiplayer-backend.onrender.com/ws/${widget.roomId}/${widget.username}';
     try {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
-      _channel!.stream.listen((message) {
-        final data = jsonDecode(message);
-        switch (data['event']) {
-          case 'card_assigned':
-            setState(() {
-              _ticketBookNumbers = List<List<List<dynamic>>>.from(data['book']);
-              _bookDaubedStates = List.generate(6, (_) => List.generate(3, (_) => List.filled(9, false)));
-              _gameStatusMessage = "Room Connected: ${data['room_id']}";
-            });
-            break;
-          case 'game_started':
-            setState(() => _gameStatusMessage = "Game Live!");
-            break;
-          case 'number_drawn':
-            setState(() {
-              _currentDrawnNumber = data['number'];
-              _drawnNumbers.clear();
-              _drawnNumbers.addAll(List<int>.from(data['history']));
-            });
-            break;
-          case 'chat_message':
-            setState(() {
-              _chatMessages.add({
-                'sender': data['sender'],
-                'message': data['message'],
-                'is_admin': data['is_admin'] ?? false,
+      _channel!.stream.listen(
+        (message) {
+          final data = jsonDecode(message);
+          switch (data['event']) {
+            case 'card_assigned':
+              setState(() {
+                _ticketBookNumbers = List<List<List<dynamic>>>.from(data['book']);
+                _bookDaubedStates = List.generate(6, (_) => List.generate(3, (_) => List.filled(9, false)));
+                _gameStatusMessage = "Room Connected: ${data['room_id']}";
               });
-            });
-            break;
-          case 'system_announcement':
-            setState(() {
-              _activeAnnouncement = data['message'];
-              _chatMessages.add({
-                'sender': 'ANNOUNCEMENT',
-                'message': data['message'],
-                'is_admin': true,
+              break;
+            case 'game_started':
+              setState(() => _gameStatusMessage = "Game Live!");
+              break;
+            case 'number_drawn':
+              setState(() {
+                _currentDrawnNumber = data['number'];
+                _drawnNumbers.clear();
+                _drawnNumbers.addAll(List<int>.from(data['history']));
               });
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text("[ADMIN]: ${data['message']}"),
-                backgroundColor: Colors.orange[800],
-                duration: const Duration(seconds: 6),
-              ),
-            );
-            break;
-          case 'game_over':
-            setState(() => _gameStatusMessage = data['winner'] != null ? "Winner: ${data['winner']}!" : "Game Over");
-            break;
-        }
-      });
-    } catch (_) {}
+              break;
+            case 'invalid_claim':
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text("⚠️ ${data['message'] ?? 'Invalid Bingo Claim!'}"),
+                  backgroundColor: Colors.red[700],
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+              break;
+            case 'game_over':
+              String winnerMsg = data['winner'] != null ? "Winner: ${data['winner']}!" : "Game Over";
+              setState(() => _gameStatusMessage = winnerMsg);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text("🎉 $winnerMsg"),
+                  backgroundColor: Colors.green[800],
+                  duration: const Duration(seconds: 8),
+                ),
+              );
+              break;
+            case 'chat_message':
+              setState(() {
+                _chatMessages.add({
+                  'sender': data['sender'],
+                  'message': data['message'],
+                  'is_admin': data['is_admin'] ?? false,
+                });
+              });
+              break;
+            case 'system_announcement':
+              setState(() {
+                _activeAnnouncement = data['message'];
+                _chatMessages.add({
+                  'sender': 'ANNOUNCEMENT',
+                  'message': data['message'],
+                  'is_admin': true,
+                });
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text("[ADMIN]: ${data['message']}"),
+                  backgroundColor: Colors.orange[800],
+                  duration: const Duration(seconds: 6),
+                ),
+              );
+              break;
+          }
+        },
+        onError: (error) {
+          setState(() => _gameStatusMessage = "Connection Error");
+        },
+        onDone: () {
+          setState(() => _gameStatusMessage = "Disconnected");
+        },
+      );
+    } catch (e) {
+      setState(() => _gameStatusMessage = "Failed to connect to server");
+    }
+  }
+
+  void _claimBingo() {
+    if (_channel != null) {
+      _channel!.sink.add(jsonEncode({'action': 'claim_bingo'}));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Verifying Bingo claim with server..."),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Not connected to game server!"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _sendChatMessage() {
@@ -499,14 +545,14 @@ class _BingoGamePageState extends State<BingoGamePage> {
           Container(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
             child: ElevatedButton(
-              onPressed: () => _channel?.sink.add(jsonEncode({'action': 'claim_bingo'})),
+              onPressed: _claimBingo,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green[600],
                 foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 40),
+                minimumSize: const Size(double.infinity, 44),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               ),
-              child: const Text("CLAIM BINGO!", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              child: const Text("CLAIM BINGO!", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ),
           )
         ],
