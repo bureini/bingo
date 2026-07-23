@@ -4,7 +4,7 @@ import random
 from typing import Dict, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-app = FastAPI(title="Authoritative Bingo Engine - Strictly Unique 1-90 Strip")
+app = FastAPI(title="Authoritative Bingo Engine with Claim Verification")
 
 class Player:
     def __init__(self, username: str, websocket: WebSocket):
@@ -14,39 +14,25 @@ class Player:
 
     def generate_six_ticket_book(self) -> List[List[List[int]]]:
         """
-        Generates a complete 6-ticket strip containing all numbers 1-90.
-        Guarantees zero duplicate numbers across the entire book.
-        
-        Column ranges:
-          Col 0: 1-9   (9 numbers)
-          Col 1: 10-19 (10 numbers)
-          Col 2: 20-29 (10 numbers)
-          Col 3: 30-39 (10 numbers)
-          Col 4: 40-49 (10 numbers)
-          Col 5: 50-59 (10 numbers)
-          Col 6: 60-69 (10 numbers)
-          Col 7: 70-79 (10 numbers)
-          Col 8: 80-90 (11 numbers) -> range(80, 91)
+        Generates a 6-ticket strip where all numbers 1-90 appear EXACTLY ONCE.
+        Guarantees zero duplicate numbers across the entire 6-ticket book.
         """
         while True:
-            # 1. Prepare exact global number pools (Total: 90 unique numbers)
             col_pools = {
-                0: list(range(1, 10)),      # 9 numbers (1 to 9)
-                1: list(range(10, 20)),    # 10 numbers (10 to 19)
-                2: list(range(20, 30)),    # 10 numbers (20 to 29)
-                3: list(range(30, 40)),    # 10 numbers (30 to 39)
-                4: list(range(40, 50)),    # 10 numbers (40 to 49)
-                5: list(range(50, 60)),    # 10 numbers (50 to 59)
-                6: list(range(60, 70)),    # 10 numbers (60 to 69)
-                7: list(range(70, 80)),    # 10 numbers (70 to 79)
-                8: list(range(80, 91)),    # 11 numbers (80 to 90 inclusive)
+                0: list(range(1, 10)),      # 1-9
+                1: list(range(10, 20)),    # 10-19
+                2: list(range(20, 30)),    # 20-29
+                3: list(range(30, 40)),    # 30-39
+                4: list(range(40, 50)),    # 40-49
+                5: list(range(50, 60)),    # 50-59
+                6: list(range(60, 70)),    # 60-69
+                7: list(range(70, 80)),    # 70-79
+                8: list(range(80, 91)),    # 80-90 inclusive
             }
             for c in range(9):
                 random.shuffle(col_pools[c])
 
-            # 2. Assign exact number counts per ticket for each column
             ticket_col_counts = [[0 for _ in range(9)] for _ in range(6)]
-            
             for c in range(9):
                 total_in_col = len(col_pools[c])
                 counts = [1] * 6
@@ -58,11 +44,9 @@ class Player:
                 for t in range(6):
                     ticket_col_counts[t][c] = counts[t]
 
-            # Verify each ticket gets exactly 15 numbers total (5 per row)
             if any(sum(ticket_col_counts[t]) != 15 for t in range(6)):
                 continue
 
-            # 3. Build ticket grid matrices
             book = [[[0 for _ in range(9)] for _ in range(3)] for _ in range(6)]
             success = True
 
@@ -93,7 +77,6 @@ class Player:
             if not success:
                 continue
 
-            # 4. Sort column numbers vertically in ascending order per ticket
             for t in range(6):
                 for c in range(9):
                     vals = [book[t][r][c] for r in range(3) if book[t][r][c] != 0]
@@ -145,22 +128,26 @@ class BingoRoom:
                 "history": self.drawn_numbers
             })
 
-    def verify_bingo(self, player_book: List[List[List[int]]]) -> bool:
-        drawn_set = set(self.drawn_numbers) | {0}
+    def verify_bingo(self, player_book: List[List[List[int]]]) -> (bool, str):
+        """
+        Verifies whether any ticket has achieved a 1 Line, 2 Lines, or Full House.
+        Returns tuple: (is_valid, pattern_type)
+        """
+        drawn_set = set(self.drawn_numbers)
         
         for ticket in player_book:
-            ticket_won = True
+            completed_rows = 0
             for r in range(3):
-                for c in range(9):
-                    val = ticket[r][c]
-                    if val != 0 and val not in drawn_set:
-                        ticket_won = False
-                        break
-                if not ticket_won:
-                    break
-            if ticket_won:
-                return True
-        return False
+                row_nums = [ticket[r][c] for c in range(9) if ticket[r][c] != 0]
+                if row_nums and all(num in drawn_set for num in row_nums):
+                    completed_rows += 1
+            
+            if completed_rows == 3:
+                return True, "Full House"
+            elif completed_rows >= 1:
+                return True, f"{completed_rows} Line(s)"
+                
+        return False, "None"
 
 rooms: Dict[str, BingoRoom] = {}
 
@@ -220,16 +207,17 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
                     })
 
             elif action == "claim_bingo" and not room.game_over:
-                if room.verify_bingo(player.book):
+                is_valid, pattern = room.verify_bingo(player.book)
+                if is_valid:
                     room.game_over = True
                     await room.broadcast({
                         "event": "game_over",
-                        "winner": username
+                        "winner": f"{username} ({pattern})"
                     })
                 else:
                     await websocket.send_text(json.dumps({
                         "event": "invalid_claim",
-                        "message": "No Full House found on any of your tickets yet!"
+                        "message": "No complete line or Full House matched your drawn numbers yet!"
                     }))
                     
     except WebSocketDisconnect:
