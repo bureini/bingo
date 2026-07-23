@@ -225,7 +225,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Get up to 5 of the most recently drawn numbers for the top display rack
     final List<int> recentFiveDrawn = _drawnNumbers.reversed.take(5).toList();
     final Set<int> drawnNumbersSet = _drawnNumbers.toSet();
 
