@@ -1,10 +1,10 @@
 import asyncio
 import json
 import random
-from typing import Dict, List, Set
+from typing import Dict, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-app = FastAPI(title="Authoritative 90-Ball Bingo Engine")
+app = FastAPI(title="Authoritative Bingo Engine with Chat & Announcement Support")
 
 class Player:
     def __init__(self, username: str, websocket: WebSocket):
@@ -13,15 +13,33 @@ class Player:
         self.book = self.generate_six_ticket_book()
 
     def generate_six_ticket_book(self) -> List[List[List[int]]]:
+        """
+        Generates a complete book of 6 distinct 3x9 tickets according to standard 90-Ball UK rules.
+        Distributes all numbers 1-90 across the 6 tickets without duplicates.
+        Columns boundaries:
+          Col 1: 1-9 | Col 2: 10-19 | Col 3: 20-29 | Col 4: 30-39 | Col 5: 40-49
+          Col 6: 50-59 | Col 7: 60-69 | Col 8: 70-79 | Col 9: 80-90
+        """
         book = [[[0 for _ in range(9)] for _ in range(3)] for _ in range(6)]
+        
+        # 1. Distribute numbers across columns using accurate boundaries
         for col in range(9):
-            low = 1 if col == 0 else col * 10
-            high = 9 if col == 0 else (89 if col == 7 else 90)
+            if col == 0:
+                low, high = 1, 9
+            elif col == 8:
+                low, high = 80, 90
+            else:
+                low, high = col * 10, (col * 10) + 9
+
             pool = list(range(low, high + 1))
             random.shuffle(pool)
+            
+            # Ensure pool has enough elements for distribution across 6 tickets (18 slots per column across strip)
             while len(pool) < 18:
                 pool.extend(random.sample(range(low, high + 1), min(18 - len(pool), (high - low + 1))))
+            
             random.shuffle(pool)
+            
             idx = 0
             for t in range(6):
                 column_digits = pool[idx:idx+3]
@@ -30,11 +48,13 @@ class Player:
                     book[t][row][col] = column_digits[row]
                 idx += 3
 
+        # 2. Clear exactly 4 spots per row to leave 5 numbers per row (UK Standard)
         for t in range(6):
             for row in range(3):
                 clear_indices = random.sample(range(9), 4)
                 for idx in clear_indices:
                     book[t][row][idx] = 0
+                    
         return book
 
 class BingoRoom:
@@ -47,14 +67,6 @@ class BingoRoom:
         self.game_started = False
         self.game_over = False
         self.loop_task: asyncio.Task = None
-        
-        # Winning Stage Trackers
-        self.current_stage = "5_numbers"  # Progression: '5_numbers' -> '10_numbers' -> 'full_house'
-        self.stage_winners = {
-            "5_numbers": None,
-            "10_numbers": None,
-            "full_house": None
-        }
 
     async def broadcast(self, message: dict):
         payload = json.dumps(message)
@@ -70,7 +82,7 @@ class BingoRoom:
 
     async def start_game_loop(self):
         self.game_started = True
-        await self.broadcast({"event": "game_started", "message": "The 90-Ball match has begun!"})
+        await self.broadcast({"event": "game_started", "message": "The 6-Ticket match has begun!"})
         
         while self.available_numbers and not self.game_over:
             await asyncio.sleep(4.0)
@@ -81,44 +93,31 @@ class BingoRoom:
             await self.broadcast({
                 "event": "number_drawn",
                 "number": num,
-                "history": self.drawn_numbers,
-                "current_stage": self.current_stage
+                "history": self.drawn_numbers
             })
 
-    def check_player_progress(self, player_book: List[List[List[int]]]) -> int:
-        """
-        Calculates the maximum marked numbers on any single ticket for the player.
-        Returns total marked counts across rows/tickets.
-        """
-        drawn_set = set(self.drawn_numbers)
-        max_ticket_count = 0
+    def verify_bingo(self, player_book: List[List[List[int]]]) -> bool:
+        drawn_set = set(self.drawn_numbers) | {0}
         
         for ticket in player_book:
-            ticket_marked = 0
+            ticket_won = True
             for r in range(3):
                 for c in range(9):
                     val = ticket[r][c]
-                    if val != 0 and val in drawn_set:
-                        ticket_marked += 1
-            if ticket_marked > max_ticket_count:
-                max_ticket_count = ticket_marked
-        return max_ticket_count
-
-    def verify_claim(self, player_book: List[List[List[int]]]) -> bool:
-        max_marked = self.check_player_progress(player_book)
-        if self.current_stage == "5_numbers" and max_marked >= 5:
-            return True
-        elif self.current_stage == "10_numbers" and max_marked >= 10:
-            return True
-        elif self.current_stage == "full_house" and max_marked >= 15:
-            return True
+                    if val != 0 and val not in drawn_set:
+                        ticket_won = False
+                        break
+                if not ticket_won:
+                    break
+            if ticket_won:
+                return True
         return False
 
 rooms: Dict[str, BingoRoom] = {}
 
 @app.get("/")
 def health_check():
-    return {"status": "healthy", "game": "Authoritative 90-Ball Engine"}
+    return {"status": "healthy", "game": "90-Ball 6-Ticket Engine Active with Chat Relay"}
 
 @app.websocket("/ws/{room_id}/{username}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
@@ -134,10 +133,15 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
         "event": "card_assigned",
         "book": player.book,
         "username": username,
-        "room_id": room_id,
-        "current_stage": room.current_stage
+        "room_id": room_id
     }))
-
+    
+    await room.broadcast({
+        "event": "player_joined",
+        "username": username,
+        "total_players": len(room.players)
+    })
+    
     if len(room.players) >= 2 and not room.game_started:
         room.loop_task = asyncio.create_task(room.start_game_loop())
 
@@ -146,39 +150,40 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
             data = await websocket.receive_text()
             payload = json.loads(data)
             action = payload.get("action")
+            
+            # --- CHAT & BROADCAST HANDLERS ---
+            if action == "send_chat":
+                chat_msg = payload.get("message", "").strip()
+                if chat_msg:
+                    await room.broadcast({
+                        "event": "chat_message",
+                        "sender": username,
+                        "message": chat_msg,
+                        "is_admin": username in ["SystemAdmin", "MasterAdmin"]
+                    })
 
-            if action == "claim_bingo" and not room.game_over:
-                if room.verify_claim(player.book):
-                    if room.current_stage == "5_numbers":
-                        room.stage_winners["5_numbers"] = username
-                        room.current_stage = "10_numbers"
-                        await room.broadcast({
-                            "event": "stage_won",
-                            "stage": "5_numbers",
-                            "winner": username,
-                            "next_stage": "10_numbers"
-                        })
-                    elif room.current_stage == "10_numbers":
-                        room.stage_winners["10_numbers"] = username
-                        room.current_stage = "full_house"
-                        await room.broadcast({
-                            "event": "stage_won",
-                            "stage": "10_numbers",
-                            "winner": username,
-                            "next_stage": "full_house"
-                        })
-                    elif room.current_stage == "full_house":
-                        room.stage_winners["full_house"] = username
-                        room.game_over = True
-                        await room.broadcast({
-                            "event": "game_over",
-                            "winners": room.stage_winners
-                        })
+            elif action == "system_announcement":
+                announcement = payload.get("message", "").strip()
+                if announcement:
+                    await room.broadcast({
+                        "event": "system_announcement",
+                        "message": announcement,
+                        "sender": "System Admin"
+                    })
+
+            elif action == "claim_bingo" and not room.game_over:
+                if room.verify_bingo(player.book):
+                    room.game_over = True
+                    await room.broadcast({
+                        "event": "game_over",
+                        "winner": username
+                    })
                 else:
                     await websocket.send_text(json.dumps({
                         "event": "invalid_claim",
-                        "message": f"Claim failed for current stage: {room.current_stage}"
+                        "message": "No Full House found on any of your tickets yet!"
                     }))
+                    
     except WebSocketDisconnect:
         if username in room.players:
             del room.players[username]
