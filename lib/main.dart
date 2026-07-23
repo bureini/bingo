@@ -356,7 +356,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
               ),
             ),
 
-          // --- TOP DRAWN BALL RACK (Shows up to 5 most recently drawn numbers) ---
+          // --- TOP DRAWN BALL RACK ---
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
             child: Card(
@@ -459,7 +459,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                                   color: isDrawnMatch ? Colors.green.shade900 : Colors.black87,
                                                 ),
                                               ),
-                                              // Highlight ring if drawn by server
                                               if (isDrawnMatch)
                                                 Container(
                                                   decoration: BoxDecoration(
@@ -469,7 +468,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                                   ),
                                                   margin: const EdgeInsets.all(1),
                                                 ),
-                                              // Manual daub overlay
                                               if (isDaubedManual && !isDrawnMatch && displayText.isNotEmpty)
                                                 Container(
                                                   decoration: BoxDecoration(
