@@ -4,7 +4,7 @@ import random
 from typing import Dict, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-app = FastAPI(title="Authoritative Bingo Engine with Unique 6-Ticket Distribution")
+app = FastAPI(title="Authoritative Bingo Engine - Strictly Unique 1-90 Strip")
 
 class Player:
     def __init__(self, username: str, websocket: WebSocket):
@@ -14,10 +14,11 @@ class Player:
 
     def generate_six_ticket_book(self) -> List[List[List[int]]]:
         """
-        Generates a complete book of 6 distinct 3x9 tickets according to strict standard 90-Ball UK rules.
-        All numbers 1-90 appear EXACTLY ONCE across the 6-ticket strip (ZERO duplicates guaranteed).
-        Column boundaries:
-          Col 0: 1-9 (9 numbers)
+        Generates a complete 6-ticket strip containing all numbers 1-90.
+        Guarantees zero duplicate numbers across the entire book.
+        
+        Column ranges:
+          Col 0: 1-9   (9 numbers)
           Col 1: 10-19 (10 numbers)
           Col 2: 20-29 (10 numbers)
           Col 3: 30-39 (10 numbers)
@@ -25,105 +26,85 @@ class Player:
           Col 5: 50-59 (10 numbers)
           Col 6: 60-69 (10 numbers)
           Col 7: 70-79 (10 numbers)
-          Col 8: 80-90 (11 numbers)
+          Col 8: 80-90 (11 numbers) -> range(80, 91)
         """
-        # Step 1: Initialize empty 6-ticket book (6 tickets, 3 rows, 9 cols)
-        book = [[[0 for _ in range(9)] for _ in range(3)] for _ in range(6)]
-
-        # Define number pools for each column
-        col_pools = {
-            0: list(range(1, 10)),
-            1: list(range(10, 20)),
-            2: list(range(20, 30)),
-            3: list(range(30, 40)),
-            4: list(range(40, 50)),
-            5: list(range(50, 60)),
-            6: list(range(60, 70)),
-            7: list(range(70, 80)),
-            8: list(range(80, 91)),
-        }
-
-        # Shuffle each column's pool of unique numbers
-        for c in range(9):
-            random.shuffle(col_pools[c])
-
-        # Distribute numbers to tickets ensuring valid column distribution
-        for t in range(6):
-            # Each ticket must have 15 numbers total (5 per row)
-            # Ensure at least 1 number per column for this ticket, then distribute remaining
-            pass
-
-        # Robust standard distribution algorithm for 6-ticket UK strip:
         while True:
-            book = [[[0 for _ in range(9)] for _ in range(3)] for _ in range(6)]
-            pools = {c: list(col_pools[c]) for c in range(9)}
-            
-            # Count numbers per ticket in each column (must total 15 per ticket, 90 across all 6)
+            # 1. Prepare exact global number pools (Total: 90 unique numbers)
+            col_pools = {
+                0: list(range(1, 10)),      # 9 numbers (1 to 9)
+                1: list(range(10, 20)),    # 10 numbers (10 to 19)
+                2: list(range(20, 30)),    # 10 numbers (20 to 29)
+                3: list(range(30, 40)),    # 10 numbers (30 to 39)
+                4: list(range(40, 50)),    # 10 numbers (40 to 49)
+                5: list(range(50, 60)),    # 10 numbers (50 to 59)
+                6: list(range(60, 70)),    # 10 numbers (60 to 69)
+                7: list(range(70, 80)),    # 10 numbers (70 to 79)
+                8: list(range(80, 91)),    # 11 numbers (80 to 90 inclusive)
+            }
+            for c in range(9):
+                random.shuffle(col_pools[c])
+
+            # 2. Assign exact number counts per ticket for each column
             ticket_col_counts = [[0 for _ in range(9)] for _ in range(6)]
             
-            # Assign exact count distribution per column across 6 tickets
             for c in range(9):
-                total_in_col = len(pools[c]) # 9, 10, or 11
-                # Distribute total_in_col slots among 6 tickets (either 1, 2, or 3 per ticket)
+                total_in_col = len(col_pools[c])
                 counts = [1] * 6
-                remaining = total_in_col - 6
-                for _ in range(remaining):
-                    idx = random.randint(0, 5)
-                    while counts[idx] >= 3:
-                        idx = random.randint(0, 5)
-                    counts[idx] += 1
+                rem = total_in_col - 6
+                indices = list(range(6))
+                random.shuffle(indices)
+                for i in range(rem):
+                    counts[indices[i]] += 1
                 for t in range(6):
                     ticket_col_counts[t][c] = counts[t]
 
-            # Verify each ticket gets exactly 15 numbers total
-            valid_distribution = True
-            for t in range(6):
-                if sum(ticket_col_counts[t]) != 15:
-                    valid_distribution = False
-                    break
-            if not valid_distribution:
+            # Verify each ticket gets exactly 15 numbers total (5 per row)
+            if any(sum(ticket_col_counts[t]) != 15 for t in range(6)):
                 continue
 
-            # Populate numbers into tickets
-            for c in range(9):
-                for t in range(6):
-                    count = ticket_col_counts[t][c]
-                    for _ in range(count):
-                        val = pools[c].pop(0)
-                        # Find an open row in ticket t for column c
-                        placed = False
-                        rows = [0, 1, 2]
-                        random.shuffle(rows)
-                        for r in rows:
-                            if book[t][r][c] == 0:
-                                book[t][r][c] = val
-                                placed = True
-                                break
-            
-            # Post-process: ensure every row has exactly 5 numbers (clear excess if needed or adjust)
-            legal_book = True
+            # 3. Build ticket grid matrices
+            book = [[[0 for _ in range(9)] for _ in range(3)] for _ in range(6)]
+            success = True
+
             for t in range(6):
-                # Row counts check
-                for r in range(3):
-                    row_nums = [c for c in range(9) if book[t][r][c] != 0]
-                    if len(row_nums) != 5:
-                        legal_book = False
+                row_counts = [0, 0, 0]
+                cols_by_count = list(range(9))
+                cols_by_count.sort(key=lambda c: ticket_col_counts[t][c], reverse=True)
+
+                for c in cols_by_count:
+                    cnt = ticket_col_counts[t][c]
+                    avail_rows = [r for r in range(3) if row_counts[r] < 5]
+                    if len(avail_rows) < cnt:
+                        success = False
                         break
-                if not legal_book:
+                    
+                    avail_rows.sort(key=lambda r: row_counts[r])
+                    chosen_rows = avail_rows[:cnt]
+                    
+                    for r in chosen_rows:
+                        val = col_pools[c].pop(0)
+                        book[t][r][c] = val
+                        row_counts[r] += 1
+                
+                if not success or any(rc != 5 for rc in row_counts):
+                    success = False
                     break
 
-            if legal_book:
-                # Sort numbers vertically within each ticket's column
-                for t in range(6):
-                    for c in range(9):
-                        col_vals = [book[t][r][c] for r in range(3) if book[t][r][c] != 0]
-                        col_vals.sort()
-                        idx = 0
-                        for r in range(3):
-                            if book[t][r][c] != 0:
-                                book[t][r][c] = col_vals[idx]
-                                idx += 1
-                return book
+            if not success:
+                continue
+
+            # 4. Sort column numbers vertically in ascending order per ticket
+            for t in range(6):
+                for c in range(9):
+                    vals = [book[t][r][c] for r in range(3) if book[t][r][c] != 0]
+                    vals.sort()
+                    idx = 0
+                    for r in range(3):
+                        if book[t][r][c] != 0:
+                            book[t][r][c] = vals[idx]
+                            idx += 1
+
+            return book
 
 class BingoRoom:
     def __init__(self, room_id: str):
@@ -185,7 +166,7 @@ rooms: Dict[str, BingoRoom] = {}
 
 @app.get("/")
 def health_check():
-    return {"status": "healthy", "game": "90-Ball Unique 6-Ticket Engine Active"}
+    return {"status": "healthy", "game": "90-Ball 100% Unique 6-Ticket Engine Active"}
 
 @app.websocket("/ws/{room_id}/{username}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str):
