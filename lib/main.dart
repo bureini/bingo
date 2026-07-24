@@ -136,6 +136,9 @@ class _BingoGamePageState extends State<BingoGamePage> {
   int? _currentDrawnNumber;
   String _gameStatusMessage = "Connecting...";
   
+  // Auto-Mark Assistant Toggle (Assists user visual marking only)
+  bool _isAutoMarkEnabled = true;
+
   // Chat & Broadcast State
   final List<Map<String, dynamic>> _chatMessages = [];
   final TextEditingController _chatController = TextEditingController();
@@ -145,6 +148,26 @@ class _BingoGamePageState extends State<BingoGamePage> {
   void initState() {
     super.initState();
     _connectToWebSocket();
+  }
+
+  /// Visual Helper: Automatically marks drawn numbers across tickets
+  /// Note: This only highlights numbers visually. User must press CLAIM BINGO! to win.
+  void _applyAutoMarking() {
+    if (!_isAutoMarkEnabled || _drawnNumbers.isEmpty) return;
+
+    final Set<int> drawnSet = _drawnNumbers.toSet();
+
+    for (int t = 0; t < 6; t++) {
+      for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 9; c++) {
+          var cellVal = _ticketBookNumbers[t][r][c];
+          int numberInt = (cellVal is int) ? cellVal : int.tryParse(cellVal.toString()) ?? 0;
+          if (numberInt != 0 && drawnSet.contains(numberInt)) {
+            _bookDaubedStates[t][r][c] = true;
+          }
+        }
+      }
+    }
   }
 
   void _connectToWebSocket() {
@@ -160,16 +183,20 @@ class _BingoGamePageState extends State<BingoGamePage> {
                 _ticketBookNumbers = List<List<List<dynamic>>>.from(data['book']);
                 _bookDaubedStates = List.generate(6, (_) => List.generate(3, (_) => List.filled(9, false)));
                 _gameStatusMessage = "Room Connected: ${data['room_id']}";
+                _applyAutoMarking();
               });
               break;
             case 'game_started':
-              setState(() => _gameStatusMessage = "Game Live!");
+              setState(() => _gameStatusMessage = "🎮 Game Live!");
               break;
             case 'number_drawn':
               setState(() {
                 _currentDrawnNumber = data['number'];
                 _drawnNumbers.clear();
                 _drawnNumbers.addAll(List<int>.from(data['history']));
+                if (_isAutoMarkEnabled) {
+                  _applyAutoMarking();
+                }
               });
               break;
             case 'invalid_claim':
@@ -182,7 +209,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
               );
               break;
             case 'game_over':
-              String winnerMsg = data['winner'] != null ? "Winner: ${data['winner']}!" : "Game Over";
+              String winnerMsg = data['winner'] != null ? "🏆 Winner: ${data['winner']}!" : "Game Over";
               setState(() => _gameStatusMessage = winnerMsg);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -205,14 +232,14 @@ class _BingoGamePageState extends State<BingoGamePage> {
               setState(() {
                 _activeAnnouncement = data['message'];
                 _chatMessages.add({
-                  'sender': 'ANNOUNCEMENT',
+                  'sender': '📢 ANNOUNCEMENT',
                   'message': data['message'],
                   'is_admin': true,
                 });
               });
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text("[ADMIN]: ${data['message']}"),
+                  content: Text("📢 [ADMIN]: ${data['message']}"),
                   backgroundColor: Colors.orange[800],
                   duration: const Duration(seconds: 6),
                 ),
@@ -272,7 +299,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
   @override
   Widget build(BuildContext context) {
     final List<int> recentFiveDrawn = _drawnNumbers.reversed.take(5).toList();
-    final Set<int> drawnNumbersSet = _drawnNumbers.toSet();
 
     return Scaffold(
       backgroundColor: Colors.grey[300],
@@ -402,45 +428,92 @@ class _BingoGamePageState extends State<BingoGamePage> {
               ),
             ),
 
-          // --- TOP DRAWN BALL RACK ---
+          // --- TOP CONTROL BAR: DRAWN BALLS & AUTO-MARK ASSISTANT SWITCH ---
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
             child: Card(
               margin: EdgeInsets.zero,
-              elevation: 2,
+              elevation: 1,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
-                child: Column(
+                padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 12.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('RECENT DRAWN BALLS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.indigo)),
-                    const SizedBox(height: 6),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(5, (index) {
-                        bool hasNum = index < recentFiveDrawn.length;
-                        int? numVal = hasNum ? recentFiveDrawn[index] : null;
-                        bool isLatest = (index == 0) && hasNum;
-
-                        return Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 4.0),
-                          child: CircleAvatar(
-                            radius: isLatest ? 18 : 15,
-                            backgroundColor: isLatest
-                                ? Colors.amber[700]
-                                : (hasNum ? Colors.indigo[600] : Colors.grey[300]),
-                            child: Text(
-                              hasNum ? '$numVal' : '--',
-                              style: TextStyle(
-                                fontSize: isLatest ? 14 : 12,
-                                color: hasNum ? Colors.white : Colors.grey[600],
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                      children: [
+                        const Text('BALL: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundColor: Colors.amber[700],
+                          child: Text(
+                            _currentDrawnNumber != null ? '$_currentDrawnNumber' : '--',
+                            style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
                           ),
-                        );
-                      }),
+                        ),
+                      ],
+                    ),
+                    Text("Drawn: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    
+                    // Auto-Mark Assistant Toggle Switch
+                    Row(
+                      children: [
+                        const Text("Auto-Mark", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                        Transform.scale(
+                          scale: 0.75,
+                          child: Switch(
+                            value: _isAutoMarkEnabled,
+                            activeColor: Colors.indigo,
+                            onChanged: (val) {
+                              setState(() {
+                                _isAutoMarkEnabled = val;
+                                if (_isAutoMarkEnabled) {
+                                  _applyAutoMarking();
+                                }
+                              });
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                   ],
+                ),
+              ),
+            ),
+          ),
+
+          // --- RECENT 5 DRAWN BALLS RACK ---
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+            child: Card(
+              margin: EdgeInsets.zero,
+              elevation: 1,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 12.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (index) {
+                    bool hasNum = index < recentFiveDrawn.length;
+                    int? numVal = hasNum ? recentFiveDrawn[index] : null;
+                    bool isLatest = (index == 0) && hasNum;
+
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 4.0),
+                      child: CircleAvatar(
+                        radius: isLatest ? 16 : 13,
+                        backgroundColor: isLatest
+                            ? Colors.amber[700]
+                            : (hasNum ? Colors.indigo[600] : Colors.grey[300]),
+                        child: Text(
+                          hasNum ? '$numVal' : '--',
+                          style: TextStyle(
+                            fontSize: isLatest ? 13 : 11,
+                            color: hasNum ? Colors.white : Colors.grey[600],
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
                 ),
               ),
             ),
@@ -478,48 +551,35 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                       var cellVal = _ticketBookNumbers[ticketIndex][r][c];
                                       int numberInt = (cellVal is int) ? cellVal : int.tryParse(cellVal.toString()) ?? 0;
                                       String displayText = (numberInt == 0) ? "" : numberInt.toString();
-                                      
-                                      bool isDaubedManual = _bookDaubedStates[ticketIndex][r][c];
-                                      bool isDrawnMatch = numberInt != 0 && drawnNumbersSet.contains(numberInt);
+                                      bool isDaubed = _bookDaubedStates[ticketIndex][r][c];
                                       
                                       return GestureDetector(
                                         onTap: () {
                                           if (displayText.isNotEmpty) {
-                                            setState(() => _bookDaubedStates[ticketIndex][r][c] = !isDaubedManual);
+                                            setState(() => _bookDaubedStates[ticketIndex][r][c] = !isDaubed);
                                           }
                                         },
                                         child: Container(
                                           height: dynamicCellHeight,
-                                          color: displayText.isEmpty
-                                              ? Colors.grey.shade100
-                                              : (isDrawnMatch ? Colors.green.shade50 : Colors.white),
+                                          color: displayText.isEmpty ? Colors.grey.shade100 : Colors.white,
                                           alignment: Alignment.center,
                                           child: Stack(
                                             alignment: Alignment.center,
                                             children: [
                                               Text(
                                                 displayText,
-                                                style: TextStyle(
+                                                style: const TextStyle(
                                                   fontWeight: FontWeight.bold,
                                                   fontSize: 12,
-                                                  color: isDrawnMatch ? Colors.green.shade900 : Colors.black87,
+                                                  color: Colors.black87,
                                                 ),
                                               ),
-                                              if (isDrawnMatch)
+                                              if (isDaubed && displayText.isNotEmpty)
                                                 Container(
                                                   decoration: BoxDecoration(
                                                     shape: BoxShape.circle,
-                                                    color: Colors.green.withOpacity(0.35),
-                                                    border: Border.all(color: Colors.green, width: 1.2),
-                                                  ),
-                                                  margin: const EdgeInsets.all(1),
-                                                ),
-                                              if (isDaubedManual && !isDrawnMatch && displayText.isNotEmpty)
-                                                Container(
-                                                  decoration: BoxDecoration(
-                                                    shape: BoxShape.circle,
-                                                    color: Colors.blue.withOpacity(0.4),
-                                                    border: Border.all(color: Colors.blueAccent, width: 0.8),
+                                                    color: Colors.green.withOpacity(0.45),
+                                                    border: Border.all(color: Colors.green.shade800, width: 1.2),
                                                   ),
                                                   margin: const EdgeInsets.all(1),
                                                 ),
