@@ -4,7 +4,7 @@ import random
 from typing import Dict, List, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-app = FastAPI(title="Authoritative Bingo Engine with Progressive Stages")
+app = FastAPI(title="Authoritative Bingo Engine - Complete Feature Set")
 
 class Player:
     def __init__(self, username: str, auth_token: str, websocket: WebSocket):
@@ -14,33 +14,57 @@ class Player:
         self.book = self.generate_six_ticket_book()
 
     def generate_six_ticket_book(self) -> List[List[List[int]]]:
-        book = [[[0 for _ in range(9)] for _ in range(3)] for _ in range(6)]
-        
-        for col in range(9):
-            low = 1 if col == 0 else col * 10
-            high = 9 if col == 0 else (89 if col == 7 else 90)
-            pool = list(range(low, high + 1))
-            random.shuffle(pool)
-            
-            while len(pool) < 18:
-                pool.extend(random.sample(range(low, high + 1), min(18 - len(pool), (high - low + 1))))
-            random.shuffle(pool)
-            
-            idx = 0
-            for t in range(6):
-                column_digits = pool[idx:idx+3]
-                column_digits.sort()
-                for row in range(3):
-                    book[t][row][col] = column_digits[row]
-                idx += 3
+        """
+        Generates a valid 6-ticket strip for 90-ball bingo.
+        Every number 1-90 appears exactly once across the 6 tickets.
+        Strict column boundaries:
+          Col 0: 1-9    | Col 1: 10-19 | Col 2: 20-29
+          Col 3: 30-39  | Col 4: 40-49 | Col 5: 50-59
+          Col 6: 60-69  | Col 7: 70-79 | Col 8: 80-90
+        """
+        while True:
+            try:
+                book = [[[0 for _ in range(9)] for _ in range(3)] for _ in range(6)]
+                col_pools = {}
+                
+                for c in range(9):
+                    low = 1 if c == 0 else c * 10
+                    high = 9 if c == 0 else (90 if c == 8 else c * 10 + 9)
+                    pool = list(range(low, high + 1))
+                    random.shuffle(pool)
+                    col_pools[c] = pool
 
-        for t in range(6):
-            for row in range(3):
-                clear_indices = random.sample(range(9), 4)
-                for idx in clear_indices:
-                    book[t][row][idx] = 0
+                for c in range(9):
+                    pool = col_pools[c]
+                    ticket_counts = [1] * 6
+                    remaining = len(pool) - 6
+                    for _ in range(remaining):
+                        valid_tickets = [t for t in range(6) if ticket_counts[t] < 3]
+                        ticket_counts[random.choice(valid_tickets)] += 1
                     
-        return book
+                    for t in range(6):
+                        count = ticket_counts[t]
+                        drawn = [pool.pop() for _ in range(count)]
+                        drawn.sort()
+                        rows = random.sample(range(3), count)
+                        rows.sort()
+                        for r_idx in range(count):
+                            book[t][rows[r_idx]][c] = drawn[r_idx]
+
+                valid = True
+                for t in range(6):
+                    for r in range(3):
+                        non_zero = [c for c in range(9) if book[t][r][c] != 0]
+                        if len(non_zero) != 5:
+                            valid = False
+                            break
+                    if not valid:
+                        break
+
+                if valid:
+                    return book
+            except Exception:
+                continue
 
 class BingoRoom:
     def __init__(self, room_id: str):
@@ -120,7 +144,7 @@ rooms: Dict[str, BingoRoom] = {}
 
 @app.get("/")
 def health_check():
-    return {"status": "healthy", "stage_engine": "Active"}
+    return {"status": "healthy", "engine": "Active"}
 
 @app.websocket("/ws/{room_id}/{username}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, auth_token: str = "guest_token"):
@@ -156,7 +180,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
             payload = json.loads(data)
             action = payload.get("action")
             
-            # Simple Token Verification for User Actions
             token = payload.get("auth_token", "guest_token")
             if token != player.auth_token:
                 await websocket.send_text(json.dumps({"event": "error", "message": "Authentication token mismatch."}))
@@ -170,6 +193,15 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
                         "sender": username,
                         "message": chat_msg,
                         "is_admin": username in ["SystemAdmin", "MasterAdmin"]
+                    })
+
+            elif action == "system_announcement":
+                announcement = payload.get("message", "").strip()
+                if announcement:
+                    await room.broadcast({
+                        "event": "system_announcement",
+                        "message": announcement,
+                        "sender": "System Admin"
                     })
 
             elif action == "claim_bingo" and not room.game_over:
