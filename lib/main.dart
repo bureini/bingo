@@ -151,7 +151,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
   String _currentStage = "1_line";
   final Map<String, String?> _winners = {"1_line": null, "2_lines": null, "full_house": null};
 
-  // Restored Live Chat & System Announcement State
   final List<Map<String, dynamic>> _chatMessages = [];
   final TextEditingController _chatController = TextEditingController();
   String? _activeAnnouncement;
@@ -444,7 +443,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
               ),
             ),
 
-          // Progressive Stages Status Bar
           Container(
             color: Colors.indigo[700],
             padding: const EdgeInsets.symmetric(vertical: 2),
@@ -467,7 +465,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
             ),
           ),
 
-          // Recent Balls Ticker Bar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
             color: Colors.white,
@@ -506,7 +503,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
             ),
           ),
           
-          // Responsive Fit Ticket Layout Area
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 2.0),
@@ -585,7 +581,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
             ),
           ),
           
-          // Stage Claim Button
           Container(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
             child: ElevatedButton(
