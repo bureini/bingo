@@ -145,12 +145,12 @@ class _BingoGamePageState extends State<BingoGamePage> {
   final List<int> _drawnNumbers = [];
   int? _currentDrawnNumber;
   
+  // Auto-Daub Feature Toggle
+  bool _autoDaubEnabled = true;
+
   String _gameStatusMessage = "Connecting...";
   String _currentStage = "1_line";
   final Map<String, String?> _winners = {"1_line": null, "2_lines": null, "full_house": null};
-  
-  final List<Map<String, dynamic>> _chatMessages = [];
-  final TextEditingController _chatController = TextEditingController();
 
   @override
   void initState() {
@@ -182,6 +182,10 @@ class _BingoGamePageState extends State<BingoGamePage> {
               _drawnNumbers.clear();
               _drawnNumbers.addAll(List<int>.from(data['history']));
               if (data['stage'] != null) _currentStage = data['stage'];
+              
+              if (_autoDaubEnabled) {
+                _performAutoDaub(_currentDrawnNumber!);
+              }
             });
             break;
           case 'stage_won':
@@ -208,6 +212,19 @@ class _BingoGamePageState extends State<BingoGamePage> {
     } catch (_) {}
   }
 
+  /// Scans all 6 tickets and marks any match for the drawn number
+  void _performAutoDaub(int drawnNumber) {
+    for (int t = 0; t < 6; t++) {
+      for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 9; c++) {
+          if (_ticketBookNumbers[t][r][c] == drawnNumber) {
+            _bookDaubedStates[t][r][c] = true;
+          }
+        }
+      }
+    }
+  }
+
   void _showNotificationDialog(String title, String message) {
     showDialog(
       context: context,
@@ -230,7 +247,6 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
   @override
   void dispose() {
-    _chatController.dispose();
     _channel?.sink.close();
     super.dispose();
   }
@@ -246,6 +262,9 @@ class _BingoGamePageState extends State<BingoGamePage> {
 
   @override
   Widget build(BuildContext context) {
+    // Extract the last 5 drawn numbers in reverse order (most recent first)
+    final recent5Drawn = _drawnNumbers.reversed.take(5).toList();
+
     return Scaffold(
       backgroundColor: Colors.grey[300],
       appBar: AppBar(
@@ -253,139 +272,168 @@ class _BingoGamePageState extends State<BingoGamePage> {
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         centerTitle: true,
+        actions: [
+          Row(
+            children: [
+              const Text("Auto", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              Switch(
+                value: _autoDaubEnabled,
+                activeColor: Colors.amber,
+                onChanged: (val) => setState(() => _autoDaubEnabled = val),
+              ),
+            ],
+          )
+        ],
       ),
       body: Column(
         children: [
+          // Room status header
           Container(
             width: double.infinity,
             color: Colors.indigo[900],
-            padding: const EdgeInsets.all(6),
+            padding: const EdgeInsets.all(4),
             child: Text(
               _gameStatusMessage,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
             ),
           ),
           
-          // Stages Status Indicator
+          // Progressive stages indicator bar
           Container(
             color: Colors.indigo[700],
-            padding: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(vertical: 2),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: ["1_line", "2_lines", "full_house"].map((stg) {
                 bool isCurrent = _currentStage == stg;
                 bool isWon = _winners[stg] != null;
                 return Chip(
+                  visualDensity: VisualDensity.compact,
                   avatar: Icon(
                     isWon ? Icons.check_circle : (isCurrent ? Icons.play_arrow : Icons.lock),
-                    color: Colors.white, size: 16,
+                    color: Colors.white, size: 14,
                   ),
                   label: Text("${_getStageTitle(stg)}: ${_winners[stg] ?? (isCurrent ? 'Active' : 'Locked')}"),
                   backgroundColor: isWon ? Colors.green[700] : (isCurrent ? Colors.amber[800] : Colors.grey[700]),
-                  labelStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                  labelStyle: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                 );
               }).toList(),
             ),
           ),
 
-          Padding(
+          // 5-Ball Drawn List Recency Bar
+          Container(
             padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-            child: Card(
-              margin: EdgeInsets.zero,
-              elevation: 1,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 12.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    Row(
-                      children: [
-                        const Text('BALL: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
-                        CircleAvatar(
-                          radius: 14,
-                          backgroundColor: Colors.amber[700],
-                          child: Text(
-                            _currentDrawnNumber != null ? '$_currentDrawnNumber' : '--',
-                            style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
+            color: Colors.white,
+            child: Row(
+              children: [
+                const Text('RECENT:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    children: recent5Drawn.asMap().entries.map((entry) {
+                      int idx = entry.key;
+                      int ballNum = entry.value;
+                      bool isLatest = idx == 0;
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isLatest ? Colors.amber[800] : Colors.indigo[400],
+                        ),
+                        child: Text(
+                          '$ballNum',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: isLatest ? 12 : 10,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                      ],
-                    ),
-                    Text("Drawn: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))
-                  ],
+                      );
+                    }).toList(),
+                  ),
                 ),
-              ),
+                Text("Total: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+              ],
             ),
           ),
           
+          // No-Scroll 6-Ticket Layout Area
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(4.0),
+              padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 2.0),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  double dynamicCellHeight = (constraints.maxHeight - 24) / 18;
-                  if (dynamicCellHeight < 16) dynamicCellHeight = 16; 
+                  // Calculate dynamic cell height to strictly fit all 6 tickets within the viewport
+                  // Total rows = 6 tickets * 3 rows = 18 rows. Account for margins/borders.
+                  double computedCellHeight = (constraints.maxHeight - 36) / 18;
+                  if (computedCellHeight < 10) computedCellHeight = 10;
 
-                  return InteractiveViewer(
-                    minScale: 0.3,
-                    maxScale: 2.5,
-                    child: Center(
-                      child: Container(
-                        constraints: const BoxConstraints(maxWidth: 500),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: List.generate(6, (ticketIndex) {
-                            return Container(
-                              margin: const EdgeInsets.symmetric(vertical: 2.0),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                border: Border.all(color: Colors.indigo.shade400, width: 1.0),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                              child: Table(
-                                border: TableBorder.all(color: Colors.grey.shade300, width: 0.8),
-                                children: List.generate(3, (r) {
-                                  return TableRow(
-                                    children: List.generate(9, (c) {
-                                      var cellVal = _ticketBookNumbers[ticketIndex][r][c];
-                                      String displayText = (cellVal == 0) ? "" : cellVal.toString();
-                                      bool isDaubed = _bookDaubedStates[ticketIndex][r][c];
-                                      
-                                      return GestureDetector(
-                                        onTap: () {
-                                          if (displayText.isNotEmpty) {
-                                            setState(() => _bookDaubedStates[ticketIndex][r][c] = !isDaubed);
-                                          }
-                                        },
-                                        child: Container(
-                                          height: dynamicCellHeight,
-                                          color: displayText.isEmpty ? Colors.grey.shade100 : Colors.white,
+                  return Center(
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 500),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: List.generate(6, (ticketIndex) {
+                          return Container(
+                            margin: const EdgeInsets.symmetric(vertical: 1.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(color: Colors.indigo.shade400, width: 0.8),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                            child: Table(
+                              border: TableBorder.all(color: Colors.grey.shade300, width: 0.6),
+                              children: List.generate(3, (r) {
+                                return TableRow(
+                                  children: List.generate(9, (c) {
+                                    var cellVal = _ticketBookNumbers[ticketIndex][r][c];
+                                    String displayText = (cellVal == 0) ? "" : cellVal.toString();
+                                    bool isDaubed = _bookDaubedStates[ticketIndex][r][c];
+                                    
+                                    return GestureDetector(
+                                      onTap: () {
+                                        if (displayText.isNotEmpty) {
+                                          setState(() => _bookDaubedStates[ticketIndex][r][c] = !isDaubed);
+                                        }
+                                      },
+                                      child: Container(
+                                        height: computedCellHeight,
+                                        color: displayText.isEmpty ? Colors.grey.shade100 : Colors.white,
+                                        alignment: Alignment.center,
+                                        child: Stack(
                                           alignment: Alignment.center,
-                                          child: Stack(
-                                            alignment: Alignment.center,
-                                            children: [
-                                              Text(displayText, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
-                                              if (isDaubed && displayText.isNotEmpty)
-                                                Container(
-                                                  decoration: BoxDecoration(
-                                                    shape: BoxShape.circle,
-                                                    color: Colors.blue.withOpacity(0.4),
-                                                    border: Border.all(color: Colors.blueAccent, width: 0.8),
-                                                  ),
-                                                  margin: const EdgeInsets.all(1),
+                                          children: [
+                                            Text(
+                                              displayText,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: computedCellHeight * 0.55,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                            if (isDaubed && displayText.isNotEmpty)
+                                              Container(
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color: Colors.blue.withOpacity(0.45),
+                                                  border: Border.all(color: Colors.blueAccent, width: 0.8),
                                                 ),
-                                            ],
-                                          ),
+                                                margin: const EdgeInsets.all(0.5),
+                                              ),
+                                          ],
                                         ),
-                                      );
-                                    }),
-                                  );
-                                }),
-                              ),
-                            );
-                          }),
-                        ),
+                                      ),
+                                    );
+                                  }),
+                                );
+                              }),
+                            ),
+                          );
+                        }),
                       ),
                     ),
                   );
@@ -394,19 +442,20 @@ class _BingoGamePageState extends State<BingoGamePage> {
             ),
           ),
           
+          // Claim Action Bar
           Container(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
             child: ElevatedButton(
               onPressed: _claimBingo,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green[600],
                 foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 40),
+                minimumSize: const Size(double.infinity, 38),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               ),
               child: Text(
                 "CLAIM ${_getStageTitle(_currentStage).toUpperCase()}!",
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
               ),
             ),
           )
