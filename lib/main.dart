@@ -34,12 +34,14 @@ class BingoJoinLobbyPage extends StatefulWidget {
 class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
   final _roomController = TextEditingController(text: "ROOM101");
   final _nameController = TextEditingController();
+  final _tokenController = TextEditingController(text: "usr_token_123");
   final _formKey = GlobalKey<FormState>();
 
   @override
   void dispose() {
     _roomController.dispose();
     _nameController.dispose();
+    _tokenController.dispose();
     super.dispose();
   }
 
@@ -51,6 +53,7 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
           builder: (context) => BingoGamePage(
             roomId: _roomController.text.trim().toUpperCase(),
             username: _nameController.text.trim(),
+            authToken: _tokenController.text.trim(),
           ),
         ),
       );
@@ -122,7 +125,14 @@ class _BingoJoinLobbyPageState extends State<BingoJoinLobbyPage> {
 class BingoGamePage extends StatefulWidget {
   final String roomId;
   final String username;
-  const BingoGamePage({super.key, required this.roomId, required this.username});
+  final String authToken;
+
+  const BingoGamePage({
+    super.key,
+    required this.roomId,
+    required this.username,
+    required this.authToken,
+  });
 
   @override
   State<BingoGamePage> createState() => _BingoGamePageState();
@@ -134,15 +144,13 @@ class _BingoGamePageState extends State<BingoGamePage> {
   WebSocketChannel? _channel;
   final List<int> _drawnNumbers = [];
   int? _currentDrawnNumber;
-  String _gameStatusMessage = "Connecting...";
   
-  // Auto-Mark Assistant Toggle (Assists user visual marking only)
-  bool _isAutoMarkEnabled = true;
-
-  // Chat & Broadcast State
+  String _gameStatusMessage = "Connecting...";
+  String _currentStage = "1_line";
+  final Map<String, String?> _winners = {"1_line": null, "2_lines": null, "full_house": null};
+  
   final List<Map<String, dynamic>> _chatMessages = [];
   final TextEditingController _chatController = TextEditingController();
-  String? _activeAnnouncement;
 
   @override
   void initState() {
@@ -150,143 +158,74 @@ class _BingoGamePageState extends State<BingoGamePage> {
     _connectToWebSocket();
   }
 
-  /// Visual Helper: Automatically marks drawn numbers across tickets
-  /// Note: This only highlights numbers visually. User must press CLAIM BINGO! to win.
-  void _applyAutoMarking() {
-    if (!_isAutoMarkEnabled || _drawnNumbers.isEmpty) return;
-
-    final Set<int> drawnSet = _drawnNumbers.toSet();
-
-    for (int t = 0; t < 6; t++) {
-      for (int r = 0; r < 3; r++) {
-        for (int c = 0; c < 9; c++) {
-          var cellVal = _ticketBookNumbers[t][r][c];
-          int numberInt = (cellVal is int) ? cellVal : int.tryParse(cellVal.toString()) ?? 0;
-          if (numberInt != 0 && drawnSet.contains(numberInt)) {
-            _bookDaubedStates[t][r][c] = true;
-          }
-        }
-      }
-    }
-  }
-
   void _connectToWebSocket() {
-    final wsUrl = 'wss://bingo-multiplayer-backend.onrender.com/ws/${widget.roomId}/${widget.username}';
+    final wsUrl = 'wss://bingo-multiplayer-backend.onrender.com/ws/${widget.roomId}/${widget.username}?auth_token=${widget.authToken}';
     try {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
-      _channel!.stream.listen(
-        (message) {
-          final data = jsonDecode(message);
-          switch (data['event']) {
-            case 'card_assigned':
-              setState(() {
-                _ticketBookNumbers = List<List<List<dynamic>>>.from(data['book']);
-                _bookDaubedStates = List.generate(6, (_) => List.generate(3, (_) => List.filled(9, false)));
-                _gameStatusMessage = "Room Connected: ${data['room_id']}";
-                _applyAutoMarking();
-              });
-              break;
-            case 'game_started':
-              setState(() => _gameStatusMessage = "🎮 Game Live!");
-              break;
-            case 'number_drawn':
-              setState(() {
-                _currentDrawnNumber = data['number'];
-                _drawnNumbers.clear();
-                _drawnNumbers.addAll(List<int>.from(data['history']));
-                if (_isAutoMarkEnabled) {
-                  _applyAutoMarking();
-                }
-              });
-              break;
-            case 'invalid_claim':
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text("⚠️ ${data['message'] ?? 'Invalid Bingo Claim!'}"),
-                  backgroundColor: Colors.red[700],
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-              break;
-            case 'game_over':
-              String winnerMsg = data['winner'] != null ? "🏆 Winner: ${data['winner']}!" : "Game Over";
-              setState(() => _gameStatusMessage = winnerMsg);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text("🎉 $winnerMsg"),
-                  backgroundColor: Colors.green[800],
-                  duration: const Duration(seconds: 8),
-                ),
-              );
-              break;
-            case 'chat_message':
-              setState(() {
-                _chatMessages.add({
-                  'sender': data['sender'],
-                  'message': data['message'],
-                  'is_admin': data['is_admin'] ?? false,
-                });
-              });
-              break;
-            case 'system_announcement':
-              setState(() {
-                _activeAnnouncement = data['message'];
-                _chatMessages.add({
-                  'sender': '📢 ANNOUNCEMENT',
-                  'message': data['message'],
-                  'is_admin': true,
-                });
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text("📢 [ADMIN]: ${data['message']}"),
-                  backgroundColor: Colors.orange[800],
-                  duration: const Duration(seconds: 6),
-                ),
-              );
-              break;
-          }
-        },
-        onError: (error) {
-          setState(() => _gameStatusMessage = "Connection Error");
-        },
-        onDone: () {
-          setState(() => _gameStatusMessage = "Disconnected");
-        },
-      );
-    } catch (e) {
-      setState(() => _gameStatusMessage = "Failed to connect to server");
-    }
+      _channel!.stream.listen((message) {
+        final data = jsonDecode(message);
+        switch (data['event']) {
+          case 'card_assigned':
+            setState(() {
+              _ticketBookNumbers = List<List<List<dynamic>>>.from(data['book']);
+              _bookDaubedStates = List.generate(6, (_) => List.generate(3, (_) => List.filled(9, false)));
+              _currentStage = data['stage'] ?? "1_line";
+              _gameStatusMessage = "Room Connected: ${data['room_id']}";
+            });
+            break;
+          case 'game_started':
+            setState(() => _gameStatusMessage = "Game Live! Target: 1 Line");
+            break;
+          case 'number_drawn':
+            setState(() {
+              _currentDrawnNumber = data['number'];
+              _drawnNumbers.clear();
+              _drawnNumbers.addAll(List<int>.from(data['history']));
+              if (data['stage'] != null) _currentStage = data['stage'];
+            });
+            break;
+          case 'stage_won':
+            setState(() {
+              _currentStage = data['next_stage'];
+              _winners[data['stage_completed']] = data['winner'];
+            });
+            _showNotificationDialog("Stage Claimed!", data['message']);
+            break;
+          case 'game_over':
+            setState(() {
+              _gameStatusMessage = "Game Completed!";
+              _winners[data['stage_completed']] = data['winner'];
+            });
+            _showNotificationDialog("Game Over!", data['message']);
+            break;
+          case 'invalid_claim':
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(data['message']), backgroundColor: Colors.red),
+            );
+            break;
+        }
+      });
+    } catch (_) {}
+  }
+
+  void _showNotificationDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK"))
+        ],
+      ),
+    );
   }
 
   void _claimBingo() {
-    if (_channel != null) {
-      _channel!.sink.add(jsonEncode({'action': 'claim_bingo'}));
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Verifying Bingo claim with server..."),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Not connected to game server!"),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  void _sendChatMessage() {
-    final text = _chatController.text.trim();
-    if (text.isNotEmpty) {
-      _channel?.sink.add(jsonEncode({
-        'action': 'send_chat',
-        'message': text,
-      }));
-      _chatController.clear();
-    }
+    _channel?.sink.add(jsonEncode({
+      'action': 'claim_bingo',
+      'auth_token': widget.authToken,
+    }));
   }
 
   @override
@@ -296,139 +235,60 @@ class _BingoGamePageState extends State<BingoGamePage> {
     super.dispose();
   }
 
+  String _getStageTitle(String stageKey) {
+    switch (stageKey) {
+      case "1_line": return "1 Line";
+      case "2_lines": return "2 Lines";
+      case "full_house": return "Full House";
+      default: return stageKey;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final List<int> recentFiveDrawn = _drawnNumbers.reversed.take(5).toList();
-
     return Scaffold(
       backgroundColor: Colors.grey[300],
       appBar: AppBar(
-        title: const Text('My Bingo Playroom'),
+        title: Text('Bingo Room (${_getStageTitle(_currentStage)})'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         centerTitle: true,
-        actions: [
-          Builder(
-            builder: (context) => IconButton(
-              icon: const Icon(Icons.chat_bubble_outline),
-              onPressed: () => Scaffold.of(context).openEndDrawer(),
-              tooltip: 'Open Chat Feed',
-            ),
-          )
-        ],
-      ),
-      endDrawer: Drawer(
-        child: Column(
-          children: [
-            Container(
-              color: Colors.indigo,
-              padding: const EdgeInsets.fromLTRB(16, 40, 16, 16),
-              width: double.infinity,
-              child: const Row(
-                children: [
-                  Icon(Icons.forum, color: Colors.white),
-                  SizedBox(width: 8),
-                  Text("Live Room Chat", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: _chatMessages.length,
-                itemBuilder: (context, index) {
-                  final msg = _chatMessages[index];
-                  bool isAdmin = msg['is_admin'] == true;
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: isAdmin ? Colors.amber[100] : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: isAdmin ? Colors.amber : Colors.grey[300]!),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          msg['sender'],
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                            color: isAdmin ? Colors.orange[900] : Colors.indigo[900],
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(msg['message'], style: const TextStyle(fontSize: 13, color: Colors.black87)),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _chatController,
-                      decoration: const InputDecoration(
-                        hintText: 'Type a message...',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      ),
-                      onSubmitted: (_) => _sendChatMessage(),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    icon: const Icon(Icons.send, color: Colors.indigo),
-                    onPressed: _sendChatMessage,
-                  )
-                ],
-              ),
-            )
-          ],
-        ),
       ),
       body: Column(
         children: [
           Container(
             width: double.infinity,
             color: Colors.indigo[900],
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.all(6),
             child: Text(
               _gameStatusMessage,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
+              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
             ),
           ),
           
-          if (_activeAnnouncement != null)
-            Container(
-              width: double.infinity,
-              color: Colors.amber[800],
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: Row(
-                children: [
-                  const Icon(Icons.campaign, color: Colors.white, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _activeAnnouncement!,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
+          // Stages Status Indicator
+          Container(
+            color: Colors.indigo[700],
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: ["1_line", "2_lines", "full_house"].map((stg) {
+                bool isCurrent = _currentStage == stg;
+                bool isWon = _winners[stg] != null;
+                return Chip(
+                  avatar: Icon(
+                    isWon ? Icons.check_circle : (isCurrent ? Icons.play_arrow : Icons.lock),
+                    color: Colors.white, size: 16,
                   ),
-                  InkWell(
-                    onTap: () => setState(() => _activeAnnouncement = null),
-                    child: const Icon(Icons.close, color: Colors.white, size: 18),
-                  )
-                ],
-              ),
+                  label: Text("${_getStageTitle(stg)}: ${_winners[stg] ?? (isCurrent ? 'Active' : 'Locked')}"),
+                  backgroundColor: isWon ? Colors.green[700] : (isCurrent ? Colors.amber[800] : Colors.grey[700]),
+                  labelStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                );
+              }).toList(),
             ),
+          ),
 
-          // --- TOP CONTROL BAR: DRAWN BALLS & AUTO-MARK ASSISTANT SWITCH ---
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
             child: Card(
@@ -437,7 +297,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 12.0),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     Row(
                       children: [
@@ -452,68 +312,8 @@ class _BingoGamePageState extends State<BingoGamePage> {
                         ),
                       ],
                     ),
-                    Text("Drawn: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    
-                    // Auto-Mark Assistant Toggle Switch
-                    Row(
-                      children: [
-                        const Text("Auto-Mark", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo)),
-                        Transform.scale(
-                          scale: 0.75,
-                          child: Switch(
-                            value: _isAutoMarkEnabled,
-                            activeColor: Colors.indigo,
-                            onChanged: (val) {
-                              setState(() {
-                                _isAutoMarkEnabled = val;
-                                if (_isAutoMarkEnabled) {
-                                  _applyAutoMarking();
-                                }
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
+                    Text("Drawn: ${_drawnNumbers.length}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))
                   ],
-                ),
-              ),
-            ),
-          ),
-
-          // --- RECENT 5 DRAWN BALLS RACK ---
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
-            child: Card(
-              margin: EdgeInsets.zero,
-              elevation: 1,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 12.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(5, (index) {
-                    bool hasNum = index < recentFiveDrawn.length;
-                    int? numVal = hasNum ? recentFiveDrawn[index] : null;
-                    bool isLatest = (index == 0) && hasNum;
-
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 4.0),
-                      child: CircleAvatar(
-                        radius: isLatest ? 16 : 13,
-                        backgroundColor: isLatest
-                            ? Colors.amber[700]
-                            : (hasNum ? Colors.indigo[600] : Colors.grey[300]),
-                        child: Text(
-                          hasNum ? '$numVal' : '--',
-                          style: TextStyle(
-                            fontSize: isLatest ? 13 : 11,
-                            color: hasNum ? Colors.white : Colors.grey[600],
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
                 ),
               ),
             ),
@@ -549,8 +349,7 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                   return TableRow(
                                     children: List.generate(9, (c) {
                                       var cellVal = _ticketBookNumbers[ticketIndex][r][c];
-                                      int numberInt = (cellVal is int) ? cellVal : int.tryParse(cellVal.toString()) ?? 0;
-                                      String displayText = (numberInt == 0) ? "" : numberInt.toString();
+                                      String displayText = (cellVal == 0) ? "" : cellVal.toString();
                                       bool isDaubed = _bookDaubedStates[ticketIndex][r][c];
                                       
                                       return GestureDetector(
@@ -566,20 +365,13 @@ class _BingoGamePageState extends State<BingoGamePage> {
                                           child: Stack(
                                             alignment: Alignment.center,
                                             children: [
-                                              Text(
-                                                displayText,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 12,
-                                                  color: Colors.black87,
-                                                ),
-                                              ),
+                                              Text(displayText, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
                                               if (isDaubed && displayText.isNotEmpty)
                                                 Container(
                                                   decoration: BoxDecoration(
                                                     shape: BoxShape.circle,
-                                                    color: Colors.green.withOpacity(0.45),
-                                                    border: Border.all(color: Colors.green.shade800, width: 1.2),
+                                                    color: Colors.blue.withOpacity(0.4),
+                                                    border: Border.all(color: Colors.blueAccent, width: 0.8),
                                                   ),
                                                   margin: const EdgeInsets.all(1),
                                                 ),
@@ -609,10 +401,13 @@ class _BingoGamePageState extends State<BingoGamePage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green[600],
                 foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 44),
+                minimumSize: const Size(double.infinity, 40),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               ),
-              child: const Text("CLAIM BINGO!", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              child: Text(
+                "CLAIM ${_getStageTitle(_currentStage).toUpperCase()}!",
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              ),
             ),
           )
         ],
