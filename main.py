@@ -4,7 +4,7 @@ import random
 from typing import Dict, List, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-app = FastAPI(title="Authoritative Bingo Engine - Complete Feature Set")
+app = FastAPI(title="Authoritative Bingo Engine with Keep-Alive & Progressive Logic")
 
 class Player:
     def __init__(self, username: str, auth_token: str, websocket: WebSocket):
@@ -16,8 +16,8 @@ class Player:
     def generate_six_ticket_book(self) -> List[List[List[int]]]:
         """
         Generates a valid 6-ticket strip for 90-ball bingo.
-        Every number 1-90 appears exactly once across the 6 tickets.
-        Strict column boundaries:
+        Every number 1-90 appears exactly once across the 6 tickets without duplicates.
+        Column constraints:
           Col 0: 1-9    | Col 1: 10-19 | Col 2: 20-29
           Col 3: 30-39  | Col 4: 40-49 | Col 5: 50-59
           Col 6: 60-69  | Col 7: 70-79 | Col 8: 80-90
@@ -74,7 +74,6 @@ class BingoRoom:
         self.available_numbers: List[int] = list(range(1, 91))
         random.shuffle(self.available_numbers)
         
-        # Progressive Game Stages: '1_line' -> '2_lines' -> 'full_house'
         self.current_stage = "1_line"
         self.winners = {
             "1_line": None,
@@ -89,7 +88,7 @@ class BingoRoom:
     async def broadcast(self, message: dict):
         payload = json.dumps(message)
         disconnected = []
-        for username, player in self.players.items():
+        for username, player in list(self.players.items()):
             try:
                 await player.websocket.send_text(payload)
             except Exception:
@@ -129,7 +128,6 @@ class BingoRoom:
 
     def verify_claim(self, player_book: List[List[List[int]]], required_stage: str) -> bool:
         drawn_set = set(self.drawn_numbers)
-        
         for ticket in player_book:
             lines = self.evaluate_ticket_lines(ticket, drawn_set)
             if required_stage == "1_line" and lines >= 1:
@@ -162,7 +160,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
         "username": username,
         "room_id": room_id,
         "stage": room.current_stage,
-        "winners": room.winners
+        "winners": room.winners,
+        "total_players": len(room.players)
     }))
     
     await room.broadcast({
@@ -179,10 +178,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
             data = await websocket.receive_text()
             payload = json.loads(data)
             action = payload.get("action")
-            
-            token = payload.get("auth_token", "guest_token")
-            if token != player.auth_token:
-                await websocket.send_text(json.dumps({"event": "error", "message": "Authentication token mismatch."}))
+
+            if action == "ping":
+                await websocket.send_text(json.dumps({
+                    "event": "pong",
+                    "total_players": len(room.players),
+                    "stage": room.current_stage
+                }))
                 continue
 
             if action == "send_chat":
@@ -210,7 +212,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
                 
                 if is_valid:
                     room.winners[target_stage] = username
-                    
                     if target_stage == "1_line":
                         room.current_stage = "2_lines"
                         await room.broadcast({
@@ -247,6 +248,11 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, username: str, 
     except WebSocketDisconnect:
         if username in room.players:
             del room.players[username]
+        await room.broadcast({
+            "event": "player_left",
+            "username": username,
+            "total_players": len(room.players)
+        })
         if not room.players:
             if room.loop_task:
                 room.loop_task.cancel()
